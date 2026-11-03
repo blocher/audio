@@ -121,7 +121,7 @@ SECRET_FIELDS = {
 PLAIN_FIELDS = {
     "openai": ["transcription_model"],
     "anthropic": ["model"],
-    "preferences": ["default_kbps", "default_mono", "card_limit_mb", "pack_strategy"],
+    "preferences": ["default_kbps", "default_mono", "card_limit_mb", "card_limit_hours", "pack_strategy"],
 }
 DEFAULTS = {
     "openai": {"transcription_model": "whisper-1"},
@@ -130,6 +130,8 @@ DEFAULTS = {
         "default_kbps": audio.DEFAULT_KBPS,
         "default_mono": True,
         "card_limit_mb": 500,
+        # Yoto documents 5 hours per card; 0 turns the duration check off for anyone who finds it isn't enforced.
+        "card_limit_hours": 5,
         "pack_strategy": "sequential",
     },
 }
@@ -239,6 +241,7 @@ class PackIn(Schema):
     kbps: int | None = None  # estimate sizes as if downsized to this bitrate
     use_optimized: bool = True
     max_mb: int | None = None
+    max_hours: float | None = None
     max_tracks: int = 100
 
 
@@ -266,32 +269,60 @@ def build_groups(groups: list[dict], kbps: int | None, use_optimized: bool) -> l
     return result
 
 
-@router.post("/pack/preview")
-def pack_preview(request, payload: PackIn):
-    max_mb = payload.max_mb or int(preferences()["card_limit_mb"])
-    limits = packing.Limits(max_bytes=max_mb * 1024 * 1024, max_tracks=payload.max_tracks)
+def pack_limits(payload: PackIn) -> packing.Limits:
+    prefs = preferences()
+    max_mb = payload.max_mb or int(prefs["card_limit_mb"])
+    hours = payload.max_hours if payload.max_hours is not None else float(prefs["card_limit_hours"] or 0)
+    return packing.Limits(
+        max_bytes=max_mb * 1024 * 1024,
+        max_tracks=payload.max_tracks,
+        max_duration_ms=int(hours * 3600 * 1000),
+    )
+
+
+def run_pack(payload: PackIn) -> tuple[list[packing.Card], packing.Limits]:
+    limits = pack_limits(payload)
     groups = build_groups(payload.groups, payload.kbps, payload.use_optimized)
     try:
-        cards = packing.pack(groups, limits, payload.strategy)
+        return packing.pack(groups, limits, payload.strategy), limits
     except packing.TrackTooLarge as exc:
         raise HttpError(400, str(exc)) from exc
-    total = sum(c.bytes for c in cards)
+
+
+def card_summary(card: packing.Card, limits: packing.Limits) -> dict:
+    fill_bytes = card.bytes / limits.max_bytes
+    fill_time = card.duration_ms / limits.max_duration_ms if limits.max_duration_ms else 0
     return {
-        "cards": [
+        "title": card.title,
+        "bytes": card.bytes,
+        "duration_ms": card.duration_ms,
+        "track_count": len(card.items),
+        "items": [
             {
-                "title": c.title,
-                "bytes": c.bytes,
-                "duration_ms": c.duration_ms,
-                "track_ids": [i.track_id for i in c.items],
-                "segments": [
-                    {"group": s.group.key, "title": s.group.title, "count": len(s.items)} for s in c.segments
-                ],
-                "fill": c.bytes / limits.max_bytes,
+                "track_id": i.track_id,
+                "title": i.title,
+                "start_ms": i.start_ms,
+                "end_ms": i.end_ms,
+                "bytes": i.bytes,
+                "duration_ms": i.duration_ms,
             }
-            for c in cards
+            for i in card.items
         ],
-        "total_bytes": total,
+        "segments": [{"group": s.group.key, "title": s.group.title, "count": len(s.items)} for s in card.segments],
+        "fill": max(fill_bytes, fill_time),
+        "bound_by": "time" if fill_time > fill_bytes else "size",
+    }
+
+
+@router.post("/pack/preview")
+def pack_preview(request, payload: PackIn):
+    cards, limits = run_pack(payload)
+    return {
+        "cards": [card_summary(c, limits) for c in cards],
+        "total_bytes": sum(c.bytes for c in cards),
+        "total_duration_ms": sum(c.duration_ms for c in cards),
         "limit_bytes": limits.max_bytes,
+        "limit_duration_ms": limits.max_duration_ms,
     }
 
 
