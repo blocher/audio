@@ -7,7 +7,7 @@ class YotoAccount(TimeStamped):
     name = models.CharField(max_length=100, default="Family")
     email = models.CharField(max_length=200, blank=True)
     encrypted_tokens = models.TextField(blank=True)
-    # Device-code login in flight: {"device_code", "user_code", "verification_uri_complete", "expires_at"}.
+    # OAuth sign-in in flight: {"state", "created"}.
     pending_login = models.JSONField(default=dict, blank=True)
     last_error = models.TextField(blank=True)
 
@@ -37,6 +37,7 @@ class Playlist(TimeStamped):
     author = models.CharField(max_length=200, blank=True)
     cover_url = models.URLField(max_length=1000, blank=True, help_text="Source image to upload as the card cover")
     yoto_cover_url = models.URLField(max_length=1000, blank=True)
+    icon = models.CharField(max_length=200, blank=True, help_text="Default chapter icon, e.g. yoto:#abc…")
     card_id = models.CharField(max_length=40, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
     use_optimized = models.BooleanField(default=True, help_text="Upload the downsized file when there is one")
@@ -56,7 +57,12 @@ class PlaylistItem(models.Model):
     playlist = models.ForeignKey(Playlist, on_delete=models.CASCADE, related_name="items")
     track = models.ForeignKey("core.Track", on_delete=models.CASCADE, related_name="playlist_items")
     position = models.PositiveIntegerField(default=0)
+    # A slice of the track, for tracks longer than Yoto's 60-minute limit. Null = whole track.
+    start_ms = models.BigIntegerField(null=True, blank=True)
+    end_ms = models.BigIntegerField(null=True, blank=True)
     title = models.CharField(max_length=300, blank=True, help_text="Override the track title on the card")
+    # What Yoto returned for this item's audio at the last sync.
+    yoto_track = models.JSONField(default=dict, blank=True)
     icon = models.CharField(max_length=200, blank=True, help_text="Yoto icon reference, e.g. yoto:#abc")
 
     class Meta:

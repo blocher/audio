@@ -117,8 +117,10 @@ def clear_finished_jobs(request):
 SECRET_FIELDS = {
     "openai": ["api_key"],
     "anthropic": ["api_key"],
+    "yoto": ["client_secret"],
 }
 PLAIN_FIELDS = {
+    "yoto": ["client_id"],
     "openai": ["transcription_model"],
     "anthropic": ["model"],
     "preferences": ["default_kbps", "default_mono", "card_limit_mb", "card_limit_hours", "pack_strategy"],
@@ -135,7 +137,12 @@ DEFAULTS = {
         "pack_strategy": "sequential",
     },
 }
-ENV_FALLBACK = {("openai", "api_key"): "OPENAI_API_KEY", ("anthropic", "api_key"): "ANTHROPIC_API_KEY"}
+ENV_FALLBACK = {
+    ("openai", "api_key"): "OPENAI_API_KEY",
+    ("anthropic", "api_key"): "ANTHROPIC_API_KEY",
+    ("yoto", "client_id"): "YOTO_CLIENT_ID",
+    ("yoto", "client_secret"): "YOTO_CLIENT_SECRET",
+}
 
 
 def setting(service: str, key: str):
@@ -166,6 +173,7 @@ def get_settings(request):
     out["capabilities"] = {
         "local_import_roots": [str(p) for p in settings.LOCAL_IMPORT_ROOTS],
         "ffmpeg": shutil.which(settings.FFMPEG_BINARY) is not None,
+        "yoto_redirect_uri": f"{settings.PUBLIC_BASE_URL}/api/yoto/callback",
     }
     return out
 
