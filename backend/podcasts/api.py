@@ -54,6 +54,10 @@ class EpisodeOut(Schema):
 class PodcastDetailOut(PodcastOut):
     episodes: list[EpisodeOut]
 
+    @staticmethod
+    def resolve_episodes(obj: Podcast):
+        return list(obj.episodes.select_related("track", "track__transcript").order_by("-published_at", "-id"))
+
 
 def annotated():
     return Podcast.objects.annotate(
@@ -104,11 +108,7 @@ def _one(pk: int) -> Podcast:
 
 @router.get("/{podcast_id}", response=PodcastDetailOut)
 def get_podcast(request, podcast_id: int):
-    podcast = _one(podcast_id)
-    podcast.episodes = list(
-        podcast.episodes.select_related("track", "track__transcript").order_by("-published_at", "-id")
-    )
-    return podcast
+    return _one(podcast_id)
 
 
 @router.post("/{podcast_id}/refresh", response=PodcastOut)

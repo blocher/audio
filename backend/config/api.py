@@ -11,10 +11,10 @@ from yoto.api import router as yoto_router
 
 api = NinjaAPI(title="Audio", version="1.0", auth=django_auth, docs_url="/docs")
 
-api.add_router("/auth/", auth_router)
+api.add_router("/auth", auth_router)
 api.add_router("/", core_router)
-api.add_router("/audible/", audible_router)
-api.add_router("/podcasts/", podcasts_router)
-api.add_router("/local/", local_router)
-api.add_router("/transcripts/", transcripts_router)
-api.add_router("/yoto/", yoto_router)
+api.add_router("/audible", audible_router)
+api.add_router("/podcasts", podcasts_router)
+api.add_router("/local", local_router)
+api.add_router("/transcripts", transcripts_router)
+api.add_router("/yoto", yoto_router)

@@ -32,6 +32,10 @@ class CollectionOut(Schema):
 class CollectionDetailOut(CollectionOut):
     tracks: list[TrackOut]
 
+    @staticmethod
+    def resolve_tracks(obj: Collection):
+        return list(obj.tracks.select_related("transcript").order_by("position", "id"))
+
 
 class CollectionIn(Schema):
     name: str
@@ -70,9 +74,7 @@ def create_collection(request, payload: CollectionIn):
 
 @router.get("/collections/{cid}", response=CollectionDetailOut)
 def get_collection(request, cid: int):
-    c = _one(cid)
-    c.tracks = list(c.tracks.select_related("transcript").order_by("position", "id"))
-    return c
+    return _one(cid)
 
 
 @router.patch("/collections/{cid}", response=CollectionOut)
