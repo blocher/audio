@@ -4,8 +4,8 @@ After=network.target postgresql.service redis-server.service
 
 [Service]
 Type=simple
-User=audio
-Group=audio
+User=audioshelf
+Group=audioshelf
 WorkingDirectory=/var/www/audio.benlocher.com/backend
 EnvironmentFile=/etc/audio/audio.env
 ExecStart=/var/www/audio.benlocher.com/.venv/bin/gunicorn config.asgi:application --workers 2 --worker-class uvicorn.workers.UvicornWorker --timeout 600 --bind 127.0.0.1:8008 --access-logfile /var/log/audio/access.log --error-logfile /var/log/audio/error.log

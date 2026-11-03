@@ -5,8 +5,8 @@ Requires=audio.service
 
 [Service]
 Type=simple
-User=audio
-Group=audio
+User=audioshelf
+Group=audioshelf
 WorkingDirectory=/var/www/audio.benlocher.com/backend
 EnvironmentFile=/etc/audio/audio.env
 # Threads, not processes: the heavy work happens in ffmpeg subprocesses and network waits.

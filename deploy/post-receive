@@ -28,7 +28,7 @@ cd ..
 .venv/bin/python backend/manage.py migrate --no-input
 .venv/bin/python backend/manage.py collectstatic --noinput --clear >/dev/null
 
-chown -R audio:audio /var/lib/audio /var/log/audio
+chown -R audioshelf:audioshelf /var/lib/audio /var/log/audio
 systemctl restart audio audio-celery
 sleep 2
 systemctl is-active --quiet audio
