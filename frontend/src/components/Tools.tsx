@@ -47,7 +47,7 @@ export function BitratePicker({
       </div>
       <label className="check">
         <input type="checkbox" checked={mono} onChange={(e) => onChange(kbps, e.target.checked)} />
-        Mono — halves the size; nobody hears stereo through a Yoto speaker
+        Mono — clearer speech at low bitrates; stories don't need stereo
       </label>
     </div>
   );
