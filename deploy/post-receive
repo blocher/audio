@@ -1,0 +1,36 @@
+#!/bin/sh
+# Bare-repo hook on dailyoffice: check out main, install, build, migrate, restart.
+set -eu
+
+set -a
+. /etc/audio/audio.env
+set +a
+
+APP_DIR=/var/www/audio.benlocher.com
+REPO_DIR=/var/repo/audio.benlocher.com.git
+PYTHON=/usr/bin/python3.13
+
+mkdir -p "$APP_DIR"
+git --work-tree="$APP_DIR" --git-dir="$REPO_DIR" checkout -f main
+
+cd "$APP_DIR"
+if [ ! -x .venv/bin/python ]; then
+  "$PYTHON" -m venv .venv
+fi
+.venv/bin/pip install --quiet --upgrade pip
+.venv/bin/pip install --quiet -r backend/requirements.txt
+
+cd frontend
+npm ci --no-audit --no-fund
+npm run build
+cd ..
+
+.venv/bin/python backend/manage.py migrate --no-input
+.venv/bin/python backend/manage.py collectstatic --noinput --clear >/dev/null
+
+chown -R audio:audio /var/lib/audio /var/log/audio
+systemctl restart audio audio-celery
+sleep 2
+systemctl is-active --quiet audio
+systemctl is-active --quiet audio-celery
+echo "audio.benlocher.com deployed"

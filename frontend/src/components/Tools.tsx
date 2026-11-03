@@ -1,0 +1,193 @@
+import { useQuery } from "@tanstack/react-query";
+import { FileText, Minimize2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../api";
+import { bytes, duration } from "../format";
+import { useAction } from "../hooks/queries";
+import type { Job, Preset, Track } from "../types";
+import { Button, Modal, Note, useToast, errorText } from "./ui";
+
+export function usePresets() {
+  return useQuery({
+    queryKey: ["presets"],
+    queryFn: () => api.get<{ default_kbps: number; presets: Preset[] }>("/audio/presets"),
+    staleTime: Infinity,
+  });
+}
+
+export function BitratePicker({
+  kbps,
+  mono,
+  onChange,
+  allowOriginal,
+}: {
+  kbps: number | null;
+  mono: boolean;
+  onChange: (kbps: number | null, mono: boolean) => void;
+  allowOriginal?: boolean;
+}) {
+  const presets = usePresets();
+  return (
+    <div className="stack">
+      <div className="preset-grid">
+        {allowOriginal && (
+          <button type="button" className={`preset ${kbps === null ? "active" : ""}`} onClick={() => onChange(null, mono)}>
+            <b>As is</b>
+            <small>Use current files</small>
+          </button>
+        )}
+        {(presets.data?.presets ?? []).map((p) => (
+          <button key={p.kbps} type="button" className={`preset ${kbps === p.kbps ? "active" : ""}`} onClick={() => onChange(p.kbps, mono)}>
+            <b>{p.kbps} kbps</b>
+            <span style={{ fontWeight: 600, fontSize: "var(--text-sm)" }}>{p.label}</span>
+            <small>{p.note}</small>
+          </button>
+        ))}
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={mono} onChange={(e) => onChange(kbps, e.target.checked)} />
+        Mono — halves the size; nobody hears stereo through a Yoto speaker
+      </label>
+    </div>
+  );
+}
+
+export function DownsizeDialog({ tracks, onClose }: { tracks: Track[]; onClose: () => void }) {
+  const toast = useToast();
+  const presets = usePresets();
+  const [kbps, setKbps] = useState<number | null>(null);
+  const [mono, setMono] = useState(true);
+  useEffect(() => {
+    if (kbps === null && presets.data) setKbps(presets.data.default_kbps);
+  }, [presets.data, kbps]);
+  const withFiles = tracks.filter((t) => t.has_file);
+  const totalMs = withFiles.reduce((a, t) => a + t.duration_ms, 0);
+  const current = withFiles.reduce((a, t) => a + t.size_bytes, 0);
+  const estimate = kbps ? Math.round(((kbps * 1000) / 8) * (totalMs / 1000) * 1.01) : current;
+  const run = useAction(() => api.post<Job>("/tracks/optimize", { track_ids: withFiles.map((t) => t.id), kbps, mono }), [["books"], ["podcast"], ["collection"]]);
+  return (
+    <Modal
+      title="Downsize audio"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            icon={<Minimize2 size={16} />}
+            disabled={!withFiles.length || !kbps}
+            loading={run.isPending}
+            onClick={() =>
+              run.mutate(undefined, {
+                onSuccess: () => {
+                  toast(`Downsizing ${withFiles.length} file(s) in the background`);
+                  onClose();
+                },
+                onError: (e) => toast(errorText(e), "error"),
+              })
+            }
+          >
+            Downsize {withFiles.length} file{withFiles.length === 1 ? "" : "s"}
+          </Button>
+        </>
+      }
+    >
+      <div className="stack" style={{ "--gap": "16px" } as React.CSSProperties}>
+        <p className="muted">
+          Re-encodes to a smaller MP3 alongside the original. Spoken word sounds clear well below music bitrates; 64 kbps mono is a
+          good default, 48 kbps is still fine for audiobooks.
+        </p>
+        <BitratePicker kbps={kbps} mono={mono} onChange={(k, m) => (setKbps(k), setMono(m))} />
+        <dl className="kv">
+          <dt>Files</dt>
+          <dd>
+            {withFiles.length} · {duration(totalMs)}
+          </dd>
+          <dt>Now</dt>
+          <dd>{bytes(current)}</dd>
+          <dt>After</dt>
+          <dd>
+            about {bytes(estimate)} {current > estimate && <span className="pill sage">−{Math.round((1 - estimate / current) * 100)}%</span>}
+          </dd>
+        </dl>
+        {withFiles.length < tracks.length && <Note>{tracks.length - withFiles.length} item(s) have no audio yet and will be skipped.</Note>}
+      </div>
+    </Modal>
+  );
+}
+
+interface Estimate {
+  tracks: number;
+  minutes: number;
+  model: string;
+  estimated_cost_usd: number;
+  configured: boolean;
+}
+
+export function TranscribeDialog({ tracks, onClose }: { tracks: Track[]; onClose: () => void }) {
+  const toast = useToast();
+  const ids = tracks.filter((t) => t.has_file).map((t) => t.id);
+  const estimate = useQuery({
+    queryKey: ["transcribe-estimate", ids.join(",")],
+    queryFn: () => api.post<Estimate>("/transcripts/estimate", { track_ids: ids }),
+  });
+  const run = useAction(() => api.post<Job>("/transcripts/transcribe", { track_ids: ids }), [["books"], ["podcast"], ["collection"]]);
+  const e = estimate.data;
+  return (
+    <Modal
+      title="Transcribe"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            icon={<FileText size={16} />}
+            disabled={!e?.tracks || !e.configured}
+            loading={run.isPending}
+            onClick={() =>
+              run.mutate(undefined, {
+                onSuccess: () => {
+                  toast("Transcription started");
+                  onClose();
+                },
+                onError: (err) => toast(errorText(err), "error"),
+              })
+            }
+          >
+            Transcribe {e?.tracks ?? ""} track{e?.tracks === 1 ? "" : "s"}
+          </Button>
+        </>
+      }
+    >
+      <div className="stack" style={{ "--gap": "14px" } as React.CSSProperties}>
+        <p className="muted">
+          Speech-to-text with OpenAI, with timestamps every few seconds. Transcripts power search and “Ask about this book”.
+        </p>
+        {e && !e.configured && (
+          <Note>
+            Add an OpenAI API key in <Link to="/settings">Settings</Link> first.
+          </Note>
+        )}
+        {e && (
+          <dl className="kv">
+            <dt>Audio</dt>
+            <dd>
+              {e.tracks} track(s) · {duration(e.minutes * 60000)}
+            </dd>
+            <dt>Model</dt>
+            <dd>{e.model}</dd>
+            <dt>Estimated cost</dt>
+            <dd>${e.estimated_cost_usd.toFixed(2)}</dd>
+          </dl>
+        )}
+        {e && e.tracks === 0 && <Note tone="ok">Everything selected is already transcribed.</Note>}
+      </div>
+    </Modal>
+  );
+}

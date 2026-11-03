@@ -1,0 +1,21 @@
+[Unit]
+Description=Audio background worker (downloads, conversion, transcription, Yoto sync)
+After=network.target postgresql.service redis-server.service
+Requires=audio.service
+
+[Service]
+Type=simple
+User=audio
+Group=audio
+WorkingDirectory=/var/www/audio.benlocher.com/backend
+EnvironmentFile=/etc/audio/audio.env
+# Threads, not processes: the heavy work happens in ffmpeg subprocesses and network waits.
+ExecStart=/var/www/audio.benlocher.com/.venv/bin/celery -A config worker --pool threads --concurrency 2 --loglevel=INFO
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/audio /var/log/audio
+
+[Install]
+WantedBy=multi-user.target
