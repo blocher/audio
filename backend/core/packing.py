@@ -1,0 +1,140 @@
+"""Pack tracks onto as few Yoto cards as possible.
+
+A *group* is an ordered run of tracks that belongs together (a book's chapters, a podcast's episodes, a folder).
+Two strategies:
+
+* ``sequential`` keeps every group in order and fills each card before starting the next. For ordered content this
+  greedy fill is optimal: no contiguous split uses fewer cards.
+* ``compact`` splits each group into full cards plus a remainder, then bin-packs the remainders with first-fit
+  decreasing so short groups share cards. Groups are never interleaved; within a card each group stays in order.
+"""
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Item:
+    track_id: int
+    title: str
+    bytes: int
+    duration_ms: int
+
+
+@dataclass
+class Group:
+    key: str
+    title: str
+    items: list[Item]
+
+
+@dataclass
+class Limits:
+    max_bytes: int = 500 * 1024 * 1024
+    max_tracks: int = 100
+    max_duration_ms: int = 0  # 0 = no limit
+
+
+@dataclass
+class Segment:
+    group: Group
+    items: list[Item]
+    part: int = 1
+    parts: int = 1
+
+    @property
+    def bytes(self) -> int:
+        return sum(i.bytes for i in self.items)
+
+    @property
+    def duration_ms(self) -> int:
+        return sum(i.duration_ms for i in self.items)
+
+
+@dataclass
+class Card:
+    segments: list[Segment] = field(default_factory=list)
+
+    @property
+    def items(self) -> list[Item]:
+        return [i for s in self.segments for i in s.items]
+
+    @property
+    def bytes(self) -> int:
+        return sum(s.bytes for s in self.segments)
+
+    @property
+    def duration_ms(self) -> int:
+        return sum(s.duration_ms for s in self.segments)
+
+    def fits(self, items: list[Item], limits: Limits) -> bool:
+        if len(self.items) + len(items) > limits.max_tracks:
+            return False
+        if self.bytes + sum(i.bytes for i in items) > limits.max_bytes:
+            return False
+        if limits.max_duration_ms and self.duration_ms + sum(i.duration_ms for i in items) > limits.max_duration_ms:
+            return False
+        return True
+
+    @property
+    def title(self) -> str:
+        if len(self.segments) == 1:
+            seg = self.segments[0]
+            return seg.group.title if seg.parts == 1 else f"{seg.group.title} ({seg.part} of {seg.parts})"
+        names = [s.group.title for s in self.segments]
+        return " · ".join(names) if len(names) <= 3 else f"{' · '.join(names[:2])} + {len(names) - 2} more"
+
+
+class TrackTooLarge(ValueError):
+    pass
+
+
+def _split(group: Group, limits: Limits) -> list[Segment]:
+    """Cut one group into consecutive card-sized segments (greedy, so all but the last are full)."""
+    segments: list[Segment] = []
+    current = Card()
+    for item in group.items:
+        if not Card().fits([item], limits):
+            raise TrackTooLarge(f"“{item.title}” is larger than a whole card; downsize it or raise the limit.")
+        if not current.fits([item], limits):
+            segments.append(Segment(group, current.items))
+            current = Card()
+        current.segments = [Segment(group, current.items + [item])]
+    if current.items:
+        segments.append(Segment(group, current.items))
+    for n, seg in enumerate(segments, start=1):
+        seg.part, seg.parts = n, len(segments)
+    return segments
+
+
+def pack(groups: list[Group], limits: Limits | None = None, strategy: str = "sequential") -> list[Card]:
+    limits = limits or Limits()
+    groups = [g for g in groups if g.items]
+    if strategy == "sequential":
+        cards: list[Card] = []
+        for group in groups:
+            cards.extend(Card([seg]) for seg in _split(group, limits))
+        return cards
+
+    full: list[Card] = []
+    leftovers: list[Segment] = []
+    for group in groups:
+        segs = _split(group, limits)
+        if len(segs) > 1:
+            full.extend(Card([s]) for s in segs[:-1])
+        leftovers.append(segs[-1])
+
+    bins: list[Card] = []
+    for seg in sorted(leftovers, key=lambda s: s.bytes, reverse=True):
+        target = next((c for c in bins if c.fits(seg.items, limits)), None)
+        if target is None:
+            bins.append(Card([seg]))
+        else:
+            target.segments.append(seg)
+    # Keep a group's parts together and in order in the final listing.
+    order = {g.key: n for n, g in enumerate(groups)}
+    bins.sort(key=lambda c: min(order[s.group.key] for s in c.segments))
+    for card in bins:
+        card.segments.sort(key=lambda s: order[s.group.key])
+    result = full + bins
+    result.sort(key=lambda c: (order[c.segments[0].group.key], c.segments[0].part))
+    return result
