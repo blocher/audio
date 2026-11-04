@@ -74,6 +74,8 @@ export interface Book {
   narrators: string;
   series: string;
   series_position: string;
+  /** Every series Audible lists for the book, in its order; `series` is the first. */
+  series_list: { title: string; position: string }[];
   cover_url: string;
   runtime_min: number;
   release_date: string | null;

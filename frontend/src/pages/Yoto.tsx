@@ -198,15 +198,30 @@ const seriesNumber = (b: Book) => parseFloat(b.series_position.match(/\d+(\.\d+)
 
 type BookBlock = { name: string; series: string; books: Book[] };
 
-/** Books grouped into series (two or more ready books) and standalones, all in reading order. */
+/** Every series a book is in. Books synced before series_list existed only know their first one. */
+const allSeries = (b: Book) => (b.series_list?.length ? b.series_list : b.series ? [{ title: b.series, position: b.series_position }] : []);
+
+/**
+ * Books grouped into series (two or more ready books) and standalones, all in reading order.
+ * Audible can list several series for a book, in any order, so each book joins the one it shares
+ * with the most other books here (the first listed wins a tie). Books in a block carry that
+ * series' name and position.
+ */
 function bookBlocks(books: Book[]): BookBlock[] {
+  const count = new Map<string, number>();
+  for (const b of books) for (const t of new Set(allSeries(b).map((s) => s.title))) count.set(t, (count.get(t) ?? 0) + 1);
   const bySeries = new Map<string, Book[]>();
-  for (const b of books) if (b.series) bySeries.set(b.series, [...(bySeries.get(b.series) ?? []), b]);
   const blocks: BookBlock[] = [];
+  for (const b of books) {
+    let best: { title: string; position: string } | undefined;
+    for (const s of allSeries(b)) if ((count.get(s.title) ?? 0) > 1 && (!best || count.get(s.title)! > count.get(best.title)!)) best = s;
+    if (best) bySeries.set(best.title, [...(bySeries.get(best.title) ?? []), { ...b, series: best.title, series_position: best.position }]);
+    else blocks.push({ name: b.title, series: "", books: [b] });
+  }
   for (const [series, list] of bySeries) {
     if (list.length > 1) blocks.push({ name: series, series, books: list.sort((a, b) => seriesNumber(a) - seriesNumber(b) || natural(a.title, b.title)) });
+    else blocks.push({ name: list[0].title, series: "", books: list });
   }
-  for (const b of books) if (!b.series || (bySeries.get(b.series)?.length ?? 0) < 2) blocks.push({ name: b.title, series: "", books: [b] });
   return blocks.sort((a, b) => natural(a.name, b.name));
 }
 
@@ -231,7 +246,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
   const q = term.trim().toLowerCase();
   const matches = (...fields: string[]) => !q || fields.some((f) => f.toLowerCase().includes(q));
   const readyBooks = (books.data ?? []).filter((b) => b.track_count > 0);
-  const blocks = bookBlocks(readyBooks.filter((b) => matches(b.title, b.authors, b.series)));
+  const blocks = bookBlocks(readyBooks.filter((b) => matches(b.title, b.authors, ...allSeries(b).map((s) => s.title))));
   const readyPodcasts = (podcasts.data ?? []).filter((p) => p.downloaded_count > 0 && matches(p.title, p.author)).sort((a, b) => natural(a.title, b.title));
   const readyFolders = (folders.data ?? []).filter((c) => c.track_count > 0 && matches(c.name)).sort((a, b) => natural(a.name, b.name));
   const nothingReady = !readyBooks.length && !(podcasts.data ?? []).some((p) => p.downloaded_count > 0) && !(folders.data ?? []).some((c) => c.track_count > 0);
@@ -242,6 +257,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
     try {
       // Sources go to the planner in the order shown here (series in reading order); it can reorder them.
       const all = bookBlocks(readyBooks);
+      const grouped = new Map(all.flatMap((bl) => bl.books.map((b) => [String(b.id), b] as const)));
       const keys = [
         ...all.flatMap((bl) => bl.books.map((b) => `book:${b.id}`)),
         ...(podcasts.data ?? []).filter((p) => p.downloaded_count > 0).sort((a, b) => natural(a.title, b.title)).map((p) => `podcast:${p.id}`),
@@ -251,7 +267,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
         keys.map(async (key): Promise<PackGroup> => {
           const [kind, id] = key.split(":");
           if (kind === "book") {
-            const book = readyBooks.find((b) => String(b.id) === id)!;
+            const book = grouped.get(id)!;
             const tracks = await api.get<Track[]>(`/tracks?book_id=${id}`);
             return { key, title: book.title, series: book.series || undefined, track_ids: tracks.map((t) => t.id) };
           }

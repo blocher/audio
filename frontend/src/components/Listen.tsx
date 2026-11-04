@@ -124,12 +124,15 @@ export function AskPanel({
   queue,
   totalMs,
   positionMs,
+  positionNote,
   title,
 }: {
   work: WorkRef;
   queue: QueueItem[];
   totalMs: number;
   positionMs: number;
+  /** Where ``positionMs`` comes from, e.g. "your Audible position". */
+  positionNote?: string;
   title: string;
 }) {
   const qc = useQueryClient();
@@ -301,11 +304,14 @@ export function AskPanel({
             <>
               <div className="horizon-note">
                 <Sparkles size={14} color="var(--terracotta)" />
-                <strong>No spoilers past {clock(effectiveHorizon)}</strong>
+                <span>
+                  <strong>No spoilers past {clock(effectiveHorizon)}</strong>
+                  {horizon === null && positionNote && <span className="muted"> · {positionNote}</span>}
+                </span>
                 <span className="spacer" />
                 {horizon !== null && (
                   <Button size="sm" variant="ghost" onClick={() => setHorizon(null)}>
-                    Follow my position
+                    {positionNote ? "Back to my Audible position" : "Follow my position"}
                   </Button>
                 )}
               </div>

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Download, FileText, ListMusic, MessageCircle, Minimize2, Play, RefreshCw, SquareStack, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import CardPlanner from "../components/CardPlanner";
@@ -30,7 +30,21 @@ export default function BookDetail() {
 
   const b = book.data;
   const queue = b ? queueFor(b.tracks, { subtitle: b.title, cover: b.cover_url, link: `/books/${b.id}` }) : [];
-  const position = useWorkPosition(queue, b?.position_ms ?? 0);
+  const inPlayer = useWorkPosition(queue, -1); // -1: this book isn't in the player
+  const position = inPlayer >= 0 ? inPlayer : (b?.position_ms ?? 0);
+
+  // Ask's spoiler limit is the Audible position, so fetch a fresh one each time the Ask tab opens.
+  const refreshedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (tab !== "ask") {
+      refreshedFor.current = null; // leaving the tab: opening it again checks again
+      return;
+    }
+    if (!b || refreshedFor.current === id) return;
+    refreshedFor.current = id ?? null;
+    refreshPosition.mutate(undefined, { onError: () => {} });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, b?.id]);
 
   if (book.isLoading) return <Spinner size={26} />;
   if (book.isError || !b) return <Note tone="error">{errorText(book.error)}</Note>;
@@ -41,6 +55,15 @@ export default function BookDetail() {
   const originalBytes = withFiles.reduce((a, t) => a + t.size_bytes, 0);
   const downsizedCount = withFiles.filter((t) => t.has_optimized).length;
   const currentBytes = withFiles.reduce((a, t) => a + (t.has_optimized ? t.optimized_size_bytes : t.size_bytes), 0);
+  // Ask's spoiler limit is where you are in Audible; playing in this app doesn't move it.
+  const askPosition = b.is_finished ? totalMs : b.position_ms;
+  const askSource = refreshPosition.isPending
+    ? "checking Audible…"
+    : refreshPosition.isError
+      ? `couldn't reach Audible; last known position from ${relative(b.position_synced_at)}`
+      : b.is_finished
+        ? "finished on Audible"
+        : `your Audible position, checked ${relative(b.position_synced_at)}`;
   const resumeIndex = Math.max(0, queue.findIndex((_, i) => (queue[i + 1]?.workOffsetMs ?? Infinity) > b.position_ms));
 
   return (
@@ -181,7 +204,14 @@ export default function BookDetail() {
       {tab === "transcript" && (ready ? <TranscriptView work={{ book_id: b.id }} queue={queue} positionMs={position} /> : <Empty title="Convert the book first" />)}
       {tab === "ask" &&
         (b.transcribed_count ? (
-          <AskPanel work={{ book_id: b.id }} queue={queue} totalMs={totalMs} positionMs={position} title={b.title} />
+          <AskPanel
+            work={{ book_id: b.id }}
+            queue={queue}
+            totalMs={totalMs}
+            positionMs={askPosition}
+            positionNote={askSource}
+            title={b.title}
+          />
         ) : (
           <Empty icon={<MessageCircle size={36} />} title="Transcribe to ask questions" action={ready ? <Button variant="primary" onClick={() => setDialog("transcribe")}>Transcribe</Button> : undefined}>
             Claude answers from the transcript up to where you are in the book — never past it.
