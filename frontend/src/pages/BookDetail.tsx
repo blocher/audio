@@ -8,7 +8,7 @@ import { AskPanel, TranscriptView, useWorkPosition } from "../components/Listen"
 import TrackList, { queueFor } from "../components/TrackList";
 import { BitratePicker, DownsizeDialog, TranscribeDialog, usePresets } from "../components/Tools";
 import { Button, Cover, Empty, Modal, Note, Progress, Spinner, Tabs, errorText, useToast } from "../components/ui";
-import { clock, date, duration, relative, stripHtml } from "../format";
+import { bytes, clock, date, duration, relative, stripHtml } from "../format";
 import { useAction, useActiveJob } from "../hooks/queries";
 import { usePlayer } from "../player";
 import type { BookDetail as BookDetailT, Job } from "../types";
@@ -36,6 +36,10 @@ export default function BookDetail() {
 
   const totalMs = b.runtime_min * 60000;
   const ready = b.tracks.length > 0;
+  const withFiles = b.tracks.filter((t) => t.has_file);
+  const originalBytes = withFiles.reduce((a, t) => a + t.size_bytes, 0);
+  const downsizedCount = withFiles.filter((t) => t.has_optimized).length;
+  const currentBytes = withFiles.reduce((a, t) => a + (t.has_optimized ? t.optimized_size_bytes : t.size_bytes), 0);
   const resumeIndex = Math.max(0, queue.findIndex((_, i) => (queue[i + 1]?.workOffsetMs ?? Infinity) > b.position_ms));
 
   return (
@@ -62,6 +66,16 @@ export default function BookDetail() {
             {b.narrators && (
               <div>
                 <b className="truncate" style={{ maxWidth: 220 }}>{b.narrators}</b>Narrated by
+              </div>
+            )}
+            {originalBytes > 0 && (
+              <div title={downsizedCount ? `${bytes(originalBytes)} before downsizing` : undefined}>
+                <b>{bytes(currentBytes)}</b>
+                {downsizedCount === 0
+                  ? "MP3 size"
+                  : downsizedCount === withFiles.length
+                    ? `Downsized from ${bytes(originalBytes)}`
+                    : `${downsizedCount} of ${withFiles.length} downsized`}
               </div>
             )}
             <div>
