@@ -50,11 +50,14 @@ def sync_positions(account: AudibleAccount, books: list[Book] | None = None) -> 
     books = books if books is not None else list(account.books.all())
     positions = client.fetch_positions(account, [b.asin for b in books])
     now = timezone.now()
+    # Every book asked about was checked, even when Audible has no position for it (never played
+    # there); those keep the position they had.
     for book in books:
         if book.asin in positions:
             book.position_ms = positions[book.asin][0]
-            book.position_synced_at = now
-            book.save(update_fields=["position_ms", "position_synced_at", "updated_at"])
+        book.position_synced_at = now
+        book.updated_at = now
+    Book.objects.bulk_update(books, ["position_ms", "position_synced_at", "updated_at"], batch_size=500)
     return len(positions)
 
 
