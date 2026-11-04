@@ -104,7 +104,7 @@ export default function Library() {
       local: "folder",
     };
     return library.items.filter(
-      (i) => (!kindMap[kind] || i.kind === kindMap[kind]) && (!accountId || String(i.accountId) === accountId),
+      (i) => (!kindMap[kind] || i.kind === kindMap[kind]) && (!accountId || (i.accountIds ?? []).some((a) => String(a) === accountId)),
     );
   }, [library.items, kind, accountId]);
 

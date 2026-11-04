@@ -1,6 +1,19 @@
 from datetime import date, datetime
 
-from django.db.models import Count, Q
+from django.db.models import (
+    BigIntegerField,
+    BooleanField,
+    Case,
+    Count,
+    Exists,
+    FloatField,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from ninja import Field, Router, Schema
 from ninja.errors import HttpError
@@ -9,7 +22,7 @@ from core.api import JobOut, TrackOut, preferences
 from core.jobs import active_job, enqueue
 
 from . import client, services
-from .models import AudibleAccount, Book
+from .models import AudibleAccount, Book, LibraryEntry, Listener
 from .tasks import convert_book_task, sync_library_task
 
 router = Router(tags=["audible"])
@@ -26,6 +39,7 @@ class AccountOut(Schema):
     last_error: str
     book_count: int = 0
     ready_count: int = 0
+    is_mine: bool = False
 
     @staticmethod
     def resolve_login_pending(obj: AudibleAccount) -> bool:
@@ -34,8 +48,9 @@ class AccountOut(Schema):
 
 class BookOut(Schema):
     id: int
-    account_id: int
-    account_name: str
+    # Every library the book is in (family sharing puts one book in several).
+    account_ids: list[int]
+    account_names: list[str]
     asin: str
     title: str
     subtitle: str
@@ -48,10 +63,13 @@ class BookOut(Schema):
     runtime_min: int
     release_date: date | None
     purchase_date: datetime | None
+    # Listening state from the viewer's own Audible account, or another library's when it isn't in theirs.
     percent_complete: float
     position_ms: int
     position_synced_at: datetime | None
     is_finished: bool
+    position_account: str | None
+    position_is_mine: bool
     status: str
     convert_kbps: int
     convert_mono: bool
@@ -59,8 +77,12 @@ class BookOut(Schema):
     transcribed_count: int = 0
 
     @staticmethod
-    def resolve_account_name(obj: Book) -> str:
-        return obj.account.name
+    def resolve_account_ids(obj: Book) -> list[int]:
+        return [e.account_id for e in obj.entries.all()]
+
+    @staticmethod
+    def resolve_account_names(obj: Book) -> list[str]:
+        return [e.account.name for e in obj.entries.all()]
 
 
 class BookDetailOut(BookOut):
@@ -77,10 +99,13 @@ class BookDetailOut(BookOut):
         return active_job(obj)
 
 
-def accounts_qs():
+def accounts_qs(user):
+    mine = services.my_account_id(user)
     return AudibleAccount.objects.annotate(
-        book_count=Count("books"), ready_count=Count("books", filter=Q(books__status=Book.Status.READY))
-    )
+        book_count=Count("entries"),
+        ready_count=Count("entries", filter=Q(entries__book__status=Book.Status.READY)),
+        is_mine=Case(When(pk=mine, then=Value(True)), default=Value(False), output_field=BooleanField()),
+    ).order_by("name", "pk")
 
 
 @router.get("/locales")
@@ -90,7 +115,7 @@ def locales(request):
 
 @router.get("/accounts", response=list[AccountOut])
 def list_accounts(request):
-    return accounts_qs()
+    return accounts_qs(request.user)
 
 
 class AccountIn(Schema):
@@ -103,7 +128,7 @@ def create_account(request, payload: AccountIn):
     if payload.locale not in client.LOCALES:
         raise HttpError(400, "Unknown marketplace")
     account = AudibleAccount.objects.create(name=payload.name.strip() or "Audible", locale=payload.locale)
-    return accounts_qs().get(pk=account.pk)
+    return accounts_qs(request.user).get(pk=account.pk)
 
 
 @router.post("/accounts/{account_id}/login/start")
@@ -124,7 +149,7 @@ def login_finish(request, account_id: int, payload: LoginFinishIn):
     except client.AudibleError as exc:
         raise HttpError(400, str(exc)) from exc
     enqueue("audible_sync", f"Sync {account.name}'s Audible library", sync_library_task, account.pk, target=account)
-    return accounts_qs().get(pk=account.pk)
+    return accounts_qs(request.user).get(pk=account.pk)
 
 
 @router.post("/accounts/{account_id}/sync", response=JobOut)
@@ -139,24 +164,52 @@ def sync(request, account_id: int):
     )
 
 
+@router.post("/accounts/{account_id}/mine", response=AccountOut)
+def make_mine(request, account_id: int):
+    """Use this account's listening positions for whoever is signed in."""
+    account = get_object_or_404(AudibleAccount, pk=account_id)
+    Listener.objects.update_or_create(user=request.user, defaults={"account": account})
+    return accounts_qs(request.user).get(pk=account.pk)
+
+
 @router.delete("/accounts/{account_id}")
-def delete_account(request, account_id: int, keep_books: bool = False):
+def delete_account(request, account_id: int):
     account = get_object_or_404(AudibleAccount, pk=account_id)
     if account.connected:
         try:
             client.disconnect(account)
         except Exception:  # noqa: BLE001 - still remove it locally
             pass
-    for book in account.books.exclude(status=Book.Status.REMOTE):
-        services.delete_audio(book)
-    account.delete()
+    services.remove_account(account)
     return {"ok": True}
 
 
-def books_qs():
-    return Book.objects.select_related("account").annotate(
-        track_count=Count("tracks", distinct=True),
-        transcribed_count=Count("tracks", filter=Q(tracks__transcript__status="ready"), distinct=True),
+def books_qs(user):
+    """Each book once, with the listening state of the viewer's own copy (or another library's if not theirs)."""
+    mine = services.my_account_id(user)
+    entries = (
+        LibraryEntry.objects.filter(book=OuterRef("pk"))
+        .annotate(theirs=Case(When(account_id=mine, then=Value(0)), default=Value(1)))
+        .order_by("theirs", "account__name", "pk")
+    )
+
+    def pick(field: str):
+        return Subquery(entries.values(field)[:1])
+
+    return (
+        Book.objects.select_related("account")
+        .prefetch_related("entries__account")
+        .annotate(
+            track_count=Count("tracks", distinct=True),
+            transcribed_count=Count("tracks", filter=Q(tracks__transcript__status="ready"), distinct=True),
+            purchase_date=pick("purchase_date"),
+            percent_complete=Coalesce(pick("percent_complete"), Value(0.0), output_field=FloatField()),
+            position_ms=Coalesce(pick("position_ms"), Value(0), output_field=BigIntegerField()),
+            position_synced_at=pick("position_synced_at"),
+            is_finished=Coalesce(pick("is_finished"), Value(False)),
+            position_account=pick("account__name"),
+            position_is_mine=Exists(LibraryEntry.objects.filter(book=OuterRef("pk"), account_id=mine)),
+        )
     )
 
 
@@ -168,9 +221,9 @@ def list_books(
     status: str = "",
     sort: str = "-purchase_date",
 ):
-    qs = books_qs()
+    qs = books_qs(request.user)
     if account_id:
-        qs = qs.filter(account_id=account_id)
+        qs = qs.filter(Exists(LibraryEntry.objects.filter(book=OuterRef("pk"), account_id=account_id)))
     if q:
         qs = qs.filter(
             Q(title__icontains=q)
@@ -203,7 +256,7 @@ def list_books(
 
 @router.get("/books/{book_id}", response=BookDetailOut)
 def get_book(request, book_id: int):
-    return get_object_or_404(books_qs(), pk=book_id)
+    return get_object_or_404(books_qs(request.user), pk=book_id)
 
 
 class ConvertIn(Schema):
@@ -214,7 +267,7 @@ class ConvertIn(Schema):
 @router.post("/books/{book_id}/convert", response=JobOut)
 def convert(request, book_id: int, payload: ConvertIn):
     book = get_object_or_404(Book.objects.select_related("account"), pk=book_id)
-    if not book.account.connected:
+    if services.download_account(book) is None:
         raise HttpError(400, f"{book.account.name}'s Audible account needs reconnecting")
     if job := active_job(book, "audible_convert"):
         return job
@@ -226,16 +279,21 @@ def convert(request, book_id: int, payload: ConvertIn):
 
 @router.post("/books/{book_id}/position", response=BookOut)
 def refresh_position(request, book_id: int):
-    book = get_object_or_404(Book.objects.select_related("account"), pk=book_id)
+    book = get_object_or_404(Book, pk=book_id)
+    entry = services.entry_for(book, request.user)
+    if entry is None:
+        raise HttpError(400, "This book isn't in any connected Audible library")
+    if not entry.account.connected:
+        raise HttpError(400, f"{entry.account.name}'s Audible account needs signing in again")
     try:
-        services.sync_positions(book.account, [book])
+        services.sync_positions(entry.account, [book])
     except Exception as exc:
         raise HttpError(502, f"Couldn't reach Audible: {exc}") from exc
-    return books_qs().get(pk=book_id)
+    return books_qs(request.user).get(pk=book_id)
 
 
 @router.delete("/books/{book_id}/audio", response=BookOut)
 def delete_book_audio(request, book_id: int):
     book = get_object_or_404(Book, pk=book_id)
     services.delete_audio(book)
-    return books_qs().get(pk=book_id)
+    return books_qs(request.user).get(pk=book_id)

@@ -11,7 +11,7 @@ from core.models import Track
 from core.secrets import decrypt_json, encrypt_json
 
 from . import client
-from .models import AudibleAccount, Book
+from .models import AudibleAccount, Book, LibraryEntry, Listener
 
 # Chapters shorter than this (credits, “This is Audible”) are folded into their neighbour.
 MIN_CHAPTER_MS = 20_000
@@ -21,8 +21,51 @@ def slug(text: str, limit: int = 60) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:limit] or "book"
 
 
+# What Audible reports per library rather than per book; these live on LibraryEntry.
+ENTRY_FIELDS = ("purchase_date", "percent_complete", "is_finished")
+
+
 def book_dir(book: Book) -> Path:
+    if book.source_file:  # the download account can change later; the files stay where they were put
+        return audio.media_path(book.source_file).parent
     return audio.media_path(f"audible/{book.account_id}/{book.asin}-{slug(book.title, 40)}")
+
+
+def my_account_id(user) -> int | None:
+    """The Audible account whose positions this login sees: the one they picked, else the first connected one."""
+    if user is not None and user.is_authenticated:
+        picked = Listener.objects.filter(user=user).values_list("account_id", flat=True).first()
+        if picked:
+            return picked
+    accounts = AudibleAccount.objects.order_by("name", "pk")
+    connected = accounts.exclude(encrypted_auth="").values_list("pk", flat=True).first()
+    return connected or accounts.values_list("pk", flat=True).first()
+
+
+def entry_for(book: Book, user) -> LibraryEntry | None:
+    """The library copy whose listening state this login sees: their own account's, else another's."""
+    entries = list(book.entries.select_related("account"))
+    mine = my_account_id(user)
+    return next((e for e in entries if e.account_id == mine), None) or next(iter(entries), None)
+
+
+def download_account(book: Book) -> AudibleAccount | None:
+    """A signed-in account that has this book: the usual one if it's connected, else any other."""
+    if book.account.connected:
+        return book.account
+    return next((e.account for e in book.entries.select_related("account") if e.account.connected), None)
+
+
+def remove_account(account: AudibleAccount) -> None:
+    """Forget an account. Books someone else also has stay, downloaded through them from now on."""
+    for book in Book.objects.filter(account=account):
+        other = book.entries.exclude(account=account).values_list("account_id", flat=True).first()
+        if other:
+            book.account_id = other
+            book.save(update_fields=["account", "updated_at"])
+        elif book.status != Book.Status.REMOTE:
+            delete_audio(book)
+    account.delete()
 
 
 @transaction.atomic
@@ -36,10 +79,25 @@ def sync_library(account: AudibleAccount) -> dict:
             continue
         seen.add(asin)
         fields = client.book_fields(item)
-        _, was_created = Book.objects.update_or_create(account=account, asin=asin, defaults=fields)
+        listening = {k: fields.pop(k) for k in ENTRY_FIELDS}
+        # Family sharing puts the same book in both libraries; it's one book with an entry in each.
+        book, was_created = Book.objects.update_or_create(
+            asin=asin, defaults=fields, create_defaults={**fields, "account": account}
+        )
+        LibraryEntry.objects.update_or_create(account=account, book=book, defaults=listening)
         created += was_created
-    # Titles that left the library (returns, expired Plus titles) go unless we've already converted them.
-    removed, _ = account.books.exclude(asin__in=seen).filter(status=Book.Status.REMOTE).delete() if seen else (0, None)
+    removed = 0
+    if seen:
+        # Titles that left this library (returns, expired Plus titles) leave it, unless we've already converted them.
+        gone = account.entries.exclude(book__asin__in=seen).filter(book__status=Book.Status.REMOTE)
+        gone_ids = list(gone.values_list("book_id", flat=True))
+        gone.delete()
+        orphans = Book.objects.filter(pk__in=gone_ids, entries__isnull=True)
+        removed = orphans.count()
+        orphans.delete()
+        for book in Book.objects.filter(pk__in=gone_ids, account=account):
+            book.account_id = book.entries.values_list("account_id", flat=True).first()
+            book.save(update_fields=["account", "updated_at"])
     account.last_synced_at = timezone.now()
     account.last_error = ""
     account.save(update_fields=["last_synced_at", "last_error", "updated_at"])
@@ -47,23 +105,30 @@ def sync_library(account: AudibleAccount) -> dict:
 
 
 def sync_positions(account: AudibleAccount, books: list[Book] | None = None) -> int:
-    books = books if books is not None else list(account.books.all())
-    positions = client.fetch_positions(account, [b.asin for b in books])
+    """Fetch this account's own listening positions, for its copies of ``books`` (default: its whole library)."""
+    entries = account.entries.select_related("book")
+    if books is not None:
+        entries = entries.filter(book__in=books)
+    entries = list(entries)
+    positions = client.fetch_positions(account, [e.book.asin for e in entries])
     now = timezone.now()
     # Every book asked about was checked, even when Audible has no position for it (never played
     # there); those keep the position they had.
-    for book in books:
-        if book.asin in positions:
-            book.position_ms = positions[book.asin][0]
-        book.position_synced_at = now
-        book.updated_at = now
-    Book.objects.bulk_update(books, ["position_ms", "position_synced_at", "updated_at"], batch_size=500)
+    for entry in entries:
+        if entry.book.asin in positions:
+            entry.position_ms = positions[entry.book.asin][0]
+        entry.position_synced_at = now
+        entry.updated_at = now
+    LibraryEntry.objects.bulk_update(entries, ["position_ms", "position_synced_at", "updated_at"], batch_size=500)
     return len(positions)
 
 
 def download_source(book: Book, on_progress=None) -> Path:
     """Fetch the encrypted AAXC (or DRM-free MP3) and remember its key and chapters."""
-    lic = client.license_request(book.account, book.asin)
+    account = download_account(book)
+    if account is None:
+        raise client.AudibleError(f"{book.account.name}'s Audible account needs signing in again.")
+    lic = client.license_request(account, book.asin)
     folder = book_dir(book)
     folder.mkdir(parents=True, exist_ok=True)
     ext = ".mp3" if lic["format"] == "mpeg" else ".aaxc"
@@ -87,8 +152,10 @@ def download_source(book: Book, on_progress=None) -> Path:
     book.encrypted_drm = encrypt_json(lic["drm"]) if lic["drm"] else ""
     book.chapters = lic["chapters"]
     if lic["position_ms"]:
-        book.position_ms = lic["position_ms"]
-        book.position_synced_at = timezone.now()
+        LibraryEntry.objects.filter(account=account, book=book).update(
+            position_ms=lic["position_ms"], position_synced_at=timezone.now()
+        )
+    book.account = account
     book.status = Book.Status.DOWNLOADED
     book.save()
     return dest

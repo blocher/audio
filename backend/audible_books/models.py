@@ -35,8 +35,10 @@ class Book(TimeStamped):
         READY = "ready", "MP3 ready"
         FAILED = "failed"
 
+    # A book is stored once even when family sharing puts it in several libraries; each library's copy is a
+    # LibraryEntry. ``account`` is the one used to download it, and is always one of the libraries it's in.
     account = models.ForeignKey(AudibleAccount, on_delete=models.CASCADE, related_name="books")
-    asin = models.CharField(max_length=20)
+    asin = models.CharField(max_length=20, unique=True)
     title = models.CharField(max_length=500)
     subtitle = models.CharField(max_length=500, blank=True)
     authors = models.CharField(max_length=500, blank=True)
@@ -49,11 +51,6 @@ class Book(TimeStamped):
     cover_url = models.URLField(max_length=500, blank=True)
     runtime_min = models.PositiveIntegerField(default=0)
     release_date = models.DateField(null=True, blank=True)
-    purchase_date = models.DateTimeField(null=True, blank=True)
-    percent_complete = models.FloatField(default=0)
-    position_ms = models.BigIntegerField(default=0, help_text="Last listening position reported by Audible")
-    position_synced_at = models.DateTimeField(null=True, blank=True)
-    is_finished = models.BooleanField(default=False)
     content_type = models.CharField(max_length=40, blank=True)
 
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.REMOTE)
@@ -67,7 +64,29 @@ class Book(TimeStamped):
 
     class Meta:
         ordering = ["title"]
-        unique_together = [("account", "asin")]
 
     def __str__(self) -> str:
         return self.title
+
+
+class LibraryEntry(TimeStamped):
+    """A book in one account's library, with that person's own listening state from Audible."""
+
+    account = models.ForeignKey(AudibleAccount, on_delete=models.CASCADE, related_name="entries")
+    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name="entries")
+    purchase_date = models.DateTimeField(null=True, blank=True)
+    percent_complete = models.FloatField(default=0)
+    position_ms = models.BigIntegerField(default=0, help_text="Last listening position reported by Audible")
+    position_synced_at = models.DateTimeField(null=True, blank=True)
+    is_finished = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["account__name"]
+        constraints = [models.UniqueConstraint(fields=["account", "book"], name="one_entry_per_library")]
+
+
+class Listener(TimeStamped):
+    """Which Audible account is this login's own. Its listening positions are the ones they see."""
+
+    user = models.OneToOneField("auth.User", on_delete=models.CASCADE, related_name="audible_listener")
+    account = models.ForeignKey(AudibleAccount, on_delete=models.CASCADE, related_name="listeners")

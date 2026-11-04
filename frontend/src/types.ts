@@ -61,12 +61,15 @@ export interface AudibleAccount {
   last_error: string;
   book_count: number;
   ready_count: number;
+  /** The signed-in user's own account: its listening positions are the ones they see. */
+  is_mine: boolean;
 }
 
 export interface Book {
   id: number;
-  account_id: number;
-  account_name: string;
+  /** Every library the book is in; family sharing puts one book in several. */
+  account_ids: number[];
+  account_names: string[];
   asin: string;
   title: string;
   subtitle: string;
@@ -84,6 +87,10 @@ export interface Book {
   position_ms: number;
   position_synced_at: string | null;
   is_finished: boolean;
+  /** Whose Audible library the listening state above comes from. */
+  position_account: string | null;
+  /** True when it's the signed-in user's own account (false: the book isn't in their library). */
+  position_is_mine: boolean;
   status: "remote" | "downloading" | "downloaded" | "converting" | "ready" | "failed";
   convert_kbps: number;
   convert_mono: boolean;

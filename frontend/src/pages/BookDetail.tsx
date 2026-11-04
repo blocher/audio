@@ -57,13 +57,15 @@ export default function BookDetail() {
   const currentBytes = withFiles.reduce((a, t) => a + (t.has_optimized ? t.optimized_size_bytes : t.size_bytes), 0);
   // Ask's spoiler limit is where you are in Audible; playing in this app doesn't move it.
   const askPosition = b.is_finished ? totalMs : b.position_ms;
+  // Your own account's position; when the book isn't in your library, whoever's it is.
+  const whose = b.position_is_mine || !b.position_account ? "your" : `${b.position_account}'s`;
   const askSource = refreshPosition.isPending
     ? "checking Audible…"
     : refreshPosition.isError
-      ? `couldn't reach Audible; last known position from ${relative(b.position_synced_at)}`
+      ? `couldn't check Audible (${errorText(refreshPosition.error)}); last known position from ${relative(b.position_synced_at)}`
       : b.is_finished
-        ? "finished on Audible"
-        : `your Audible position, checked ${relative(b.position_synced_at)}`;
+        ? `finished on ${whose} Audible`
+        : `${whose} Audible position, checked ${relative(b.position_synced_at)}`;
   const resumeIndex = Math.max(0, queue.findIndex((_, i) => (queue[i + 1]?.workOffsetMs ?? Infinity) > b.position_ms));
 
   return (
@@ -103,7 +105,8 @@ export default function BookDetail() {
               </div>
             )}
             <div>
-              <b>{b.account_name}</b>Audible account
+              <b className="truncate" style={{ maxWidth: 220 }}>{b.account_names.join(" & ")}</b>
+              {b.account_names.length > 1 ? "Audible libraries" : "Audible account"}
             </div>
             {b.release_date && (
               <div>
@@ -116,7 +119,7 @@ export default function BookDetail() {
             <div className="row" style={{ marginBottom: 10 }}>
               <strong>{b.is_finished ? "Finished" : b.position_ms ? `At ${clock(b.position_ms)} of ${clock(totalMs)}` : "Not started"}</strong>
               <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                from Audible · {relative(b.position_synced_at)}
+                from {b.position_is_mine || !b.position_account ? "your" : `${b.position_account}'s`} Audible · {relative(b.position_synced_at)}
               </span>
               <span className="spacer" />
               <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} loading={refreshPosition.isPending} onClick={() => refreshPosition.mutate()}>

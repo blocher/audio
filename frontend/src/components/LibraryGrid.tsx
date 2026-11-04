@@ -18,7 +18,7 @@ export interface LibraryItem {
   by: string;
   cover: string;
   to: string;
-  accountId?: number;
+  accountIds?: number[];
   progress?: number;
   meta: string;
   source: string;
@@ -58,10 +58,10 @@ export function useLibraryItems() {
         by: b.authors,
         cover: b.cover_url,
         to: `/books/${b.id}`,
-        accountId: b.account_id,
+        accountIds: b.account_ids,
         progress: b.is_finished ? 1 : b.percent_complete / 100,
         meta: duration(b.runtime_min * 60000),
-        source: `Audible · ${b.account_name}`,
+        source: `Audible · ${b.account_names.join(" & ")}`,
         ready: b.status === "ready",
         transcribed: b.transcribed_count > 0,
         inProgress: b.percent_complete > 0 && !b.is_finished,

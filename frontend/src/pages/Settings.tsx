@@ -62,6 +62,7 @@ function AudibleSection() {
   const [locale, setLocale] = useState("us");
   const sync = useAction((id: number) => api.post(`/audible/accounts/${id}/sync`), [["audible-accounts"]]);
   const remove = useAction((id: number) => api.del(`/audible/accounts/${id}`), [["audible-accounts"], ["books"]]);
+  const makeMine = useAction((id: number) => api.post(`/audible/accounts/${id}/mine`), [["audible-accounts"], ["books"]]);
 
   async function create() {
     try {
@@ -83,7 +84,9 @@ function AudibleSection() {
         <Button size="sm" icon={<Plus size={15} />} onClick={() => setAdding(true)}>Add account</Button>
       </div>
       <p className="muted" style={{ marginBottom: 14 }}>
-        Each account signs in once as a new “device”, like the Audible app. Add one for each person whose library you want.
+        Each account signs in once as a new “device”, like the Audible app. Add one for each person whose library you want;
+        books you share through family sharing show up once. Mark which account is yours, and you'll see your own listening
+        position, and Ask will use it.
       </p>
       {accounts.data?.length ? (
         <div className="list">
@@ -91,7 +94,9 @@ function AudibleSection() {
             <div key={a.id} className="list-row">
               <span className="avatar">{a.name.slice(0, 1).toUpperCase()}</span>
               <div style={{ minWidth: 0 }}>
-                <div className="title">{a.name}</div>
+                <div className="title">
+                  {a.name} {a.is_mine && <span className="pill sage">Yours</span>}
+                </div>
                 <div className="sub">
                   {a.connected ? <span className="pill sage">Connected</span> : <span className="pill honey">Not signed in</span>}
                   <span>{a.locale.toUpperCase()}</span>
@@ -102,6 +107,11 @@ function AudibleSection() {
                 {a.last_error && <div className="sub" style={{ color: "var(--berry)" }}>{a.last_error.slice(0, 160)}</div>}
               </div>
               <div className="actions">
+                {!a.is_mine && accounts.data!.length > 1 && (
+                  <Button size="sm" variant="ghost" onClick={() => makeMine.mutate(a.id, { onSuccess: () => toast(`Showing ${a.name}'s listening positions to you`) })}>
+                    This is me
+                  </Button>
+                )}
                 {a.connected ? (
                   <Button size="sm" icon={<RefreshCw size={14} />} onClick={() => sync.mutate(a.id, { onSuccess: () => toast(`Syncing ${a.name}'s library`) })}>Sync</Button>
                 ) : (
@@ -113,7 +123,7 @@ function AudibleSection() {
                   iconOnly
                   icon={<Trash2 size={14} />}
                   aria-label="Remove"
-                  onClick={() => confirm(`Remove ${a.name}'s Audible account? Converted audio for their books is deleted too.`) && remove.mutate(a.id)}
+                  onClick={() => confirm(`Remove ${a.name}'s Audible account? Converted audio for books only they have is deleted too.`) && remove.mutate(a.id)}
                 />
               </div>
             </div>
