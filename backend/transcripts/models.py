@@ -14,7 +14,8 @@ class Transcript(TimeStamped):
 
     track = models.OneToOneField("core.Track", on_delete=models.CASCADE, related_name="transcript")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.QUEUED)
-    model = models.CharField(max_length=60, blank=True)
+    provider = models.CharField(max_length=20, blank=True)
+    model = models.CharField(max_length=80, blank=True)
     language = models.CharField(max_length=20, blank=True)
     text = models.TextField(blank=True)
     word_count = models.PositiveIntegerField(default=0)
@@ -61,7 +62,8 @@ class Message(TimeStamped):
     content = models.TextField()
     position_ms = models.BigIntegerField(default=0, help_text="Spoiler horizon used for this question")
     citations = models.JSONField(default=list, blank=True)
-    model = models.CharField(max_length=60, blank=True)
+    provider = models.CharField(max_length=20, blank=True)
+    model = models.CharField(max_length=80, blank=True)
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)
 

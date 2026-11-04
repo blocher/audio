@@ -6,7 +6,8 @@ from django.shortcuts import get_object_or_404
 from ninja import Field, Router, Schema
 from ninja.errors import HttpError
 
-from core.api import JobOut, setting
+from core import ai
+from core.api import JobOut
 from core.jobs import enqueue
 from core.models import Track
 
@@ -21,6 +22,8 @@ router = Router(tags=["transcripts"])
 class TranscribeIn(Schema):
     track_ids: list[int]
     force: bool = False
+    provider: str | None = None
+    model: str | None = None
 
 
 def _pending(track_ids: list[int], force: bool):
@@ -30,24 +33,32 @@ def _pending(track_ids: list[int], force: bool):
     return qs
 
 
+def _resolve(payload: TranscribeIn) -> tuple[str, str]:
+    try:
+        return ai.resolve("stt", payload.provider, payload.model)
+    except RuntimeError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+
 @router.post("/estimate")
 def estimate(request, payload: TranscribeIn):
     tracks = list(_pending(payload.track_ids, payload.force))
-    model = setting("openai", "transcription_model") or "whisper-1"
-    minutes = sum(t.duration_ms for t in tracks) / 60_000
+    ms = sum(t.duration_ms for t in tracks)
+    configured = any(ai.configured(p.id) for p in ai.PROVIDERS.values() if p.stt)
+    provider, model = _resolve(payload) if configured else ("", "")
     return {
         "tracks": len(tracks),
-        "minutes": round(minutes),
+        "minutes": round(ms / 60_000),
+        "provider": provider,
         "model": model,
-        "estimated_cost_usd": stt.estimate_cost(int(minutes * 60_000), model),
-        "configured": bool(setting("openai", "api_key")),
+        "estimated_cost_usd": stt.estimate_cost(ms, provider, model) if provider else None,
+        "configured": configured,
     }
 
 
 @router.post("/transcribe", response=JobOut)
 def transcribe(request, payload: TranscribeIn):
-    if not setting("openai", "api_key"):
-        raise HttpError(400, "Add an OpenAI API key in Settings first")
+    provider, model = _resolve(payload)
     tracks = list(_pending(payload.track_ids, payload.force))
     if not tracks:
         raise HttpError(400, "Those tracks are already transcribed (or have no audio yet)")
@@ -57,9 +68,11 @@ def transcribe(request, payload: TranscribeIn):
     target = first.book or first.episode or first.collection
     return enqueue(
         "transcribe",
-        f"Transcribe {len(tracks)} track(s)" + (f" of {target}" if target else ""),
+        f"Transcribe {len(tracks)} track(s)" + (f" of {target}" if target else "") + f" with {model}",
         transcribe_tracks_task,
         [t.pk for t in tracks],
+        provider,
+        model,
         target=target,
     )
 
@@ -102,6 +115,7 @@ class MessageOut(Schema):
     content: str
     position_ms: int
     citations: list
+    provider: str
     model: str
     created_at: datetime
 
@@ -158,6 +172,8 @@ def delete_conversation(request, cid: int):
 class AskIn(Schema):
     question: str = Field(min_length=1, max_length=4000)
     position_ms: int = Field(ge=0)
+    provider: str | None = None
+    model: str | None = None
 
 
 @router.post("/conversations/{cid}/ask")
@@ -169,7 +185,9 @@ def ask_question(request, cid: int, payload: AskIn):
 
     def events():
         try:
-            for event in ask.stream_answer(conversation, payload.question.strip(), payload.position_ms):
+            for event in ask.stream_answer(
+                conversation, payload.question.strip(), payload.position_ms, payload.provider, payload.model
+            ):
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # surface to the chat UI rather than cutting the stream silently
             yield json.dumps({"type": "error", "error": str(exc)}) + "\n"

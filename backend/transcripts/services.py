@@ -7,14 +7,18 @@ from . import stt
 from .models import Segment, Transcript
 
 
-def transcribe_track(track: Track, on_progress=None) -> Transcript:
+def transcribe_track(
+    track: Track, provider: str | None = None, model: str | None = None, on_progress=None
+) -> Transcript:
     transcript, _ = Transcript.objects.get_or_create(track=track)
     transcript.status = Transcript.Status.RUNNING
     transcript.error = ""
     transcript.save(update_fields=["status", "error", "updated_at"])
     try:
         # Transcribe the smallest copy we have; speech models don't benefit from higher bitrates.
-        model, segments = stt.transcribe_file(audio.media_path(track.best_file), track.duration_ms, on_progress)
+        provider, model, segments = stt.transcribe_file(
+            audio.media_path(track.best_file), track.duration_ms, provider, model, on_progress
+        )
     except Exception as exc:
         transcript.status = Transcript.Status.FAILED
         transcript.error = str(exc)[:4000]
@@ -26,6 +30,7 @@ def transcribe_track(track: Track, on_progress=None) -> Transcript:
         transcript.text = "\n".join(s["text"] for s in segments)
         transcript.word_count = len(transcript.text.split())
         transcript.audio_seconds = track.duration_ms // 1000
+        transcript.provider = provider
         transcript.model = model
         transcript.status = Transcript.Status.READY
         transcript.save()

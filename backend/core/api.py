@@ -117,17 +117,27 @@ def clear_finished_jobs(request):
 SECRET_FIELDS = {
     "openai": ["api_key"],
     "anthropic": ["api_key"],
+    "gemini": ["api_key"],
+    "xai": ["api_key"],
+    "groq": ["api_key"],
     "yoto": ["client_secret"],
 }
 PLAIN_FIELDS = {
     "yoto": ["client_id"],
-    "openai": ["transcription_model"],
-    "anthropic": ["model"],
-    "preferences": ["default_kbps", "default_mono", "card_limit_mb", "card_limit_hours", "pack_strategy"],
+    "preferences": [
+        "default_kbps",
+        "default_mono",
+        "card_limit_mb",
+        "card_limit_hours",
+        "pack_strategy",
+        "stt_provider",
+        "stt_model",
+        "chat_provider",
+        "chat_model",
+        "groq_context_tokens",
+    ],
 }
 DEFAULTS = {
-    "openai": {"transcription_model": "whisper-1"},
-    "anthropic": {"model": "claude-opus-5-5"},
     "preferences": {
         "default_kbps": audio.DEFAULT_KBPS,
         "default_mono": True,
@@ -135,11 +145,20 @@ DEFAULTS = {
         # Yoto documents 5 hours per card; 0 turns the duration check off for anyone who finds it isn't enforced.
         "card_limit_hours": 5,
         "pack_strategy": "sequential",
+        "stt_provider": "",
+        "stt_model": "",
+        "chat_provider": "",
+        "chat_model": "",
+        # Groq's per-minute token limits are far below its models' context windows on most plans.
+        "groq_context_tokens": 24000,
     },
 }
 ENV_FALLBACK = {
     ("openai", "api_key"): "OPENAI_API_KEY",
     ("anthropic", "api_key"): "ANTHROPIC_API_KEY",
+    ("gemini", "api_key"): "GEMINI_API_KEY",
+    ("xai", "api_key"): "XAI_API_KEY",
+    ("groq", "api_key"): "GROQ_API_KEY",
     ("yoto", "client_id"): "YOTO_CLIENT_ID",
     ("yoto", "client_secret"): "YOTO_CLIENT_SECRET",
 }
@@ -182,7 +201,30 @@ def get_settings(request):
         "yoto_redirect_uri": f"{settings.PUBLIC_BASE_URL}/api/yoto/callback",
         "yoto_scopes": yoto_scopes(),
     }
+    from .ai import PROVIDERS
+
+    out["providers"] = [
+        {"id": p.id, "label": p.label, "stt": p.stt, "chat": p.chat, "key_url": p.key_url} for p in PROVIDERS.values()
+    ]
     return out
+
+
+@router.get("/ai/models")
+def ai_models(request, kind: str = "chat", refresh: bool = False):
+    """Configured providers and their live model lists, for the model pickers."""
+    from . import ai
+
+    if kind not in ("chat", "stt"):
+        raise HttpError(400, "kind must be chat or stt")
+    if refresh:
+        for p in ai.PROVIDERS.values():
+            if ai.configured(p.id):
+                ai.provider_models(p.id, refresh=True)
+    prefs = preferences()
+    return {
+        "providers": ai.catalog(kind),
+        "default": {"provider": prefs[f"{kind}_provider"], "model": prefs[f"{kind}_model"]},
+    }
 
 
 class SettingsIn(Schema):
