@@ -109,6 +109,7 @@ export interface Podcast {
   downloaded_count: number;
   downloaded_bytes: number;
   total_duration_ms: number;
+  transcribed_count: number;
 }
 
 export interface Episode {
@@ -149,6 +150,8 @@ export interface Collection {
   track_count: number;
   total_bytes: number;
   total_duration_ms: number;
+  mp3_count: number;
+  transcribed_count: number;
 }
 
 export interface CollectionDetail extends Collection {

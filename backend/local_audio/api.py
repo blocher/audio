@@ -2,7 +2,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from ninja import File, Form, Router, Schema, UploadedFile
 from ninja.errors import HttpError
@@ -27,6 +27,8 @@ class CollectionOut(Schema):
     track_count: int = 0
     total_bytes: int = 0
     total_duration_ms: int = 0
+    mp3_count: int = 0
+    transcribed_count: int = 0
 
 
 class CollectionDetailOut(CollectionOut):
@@ -44,9 +46,16 @@ class CollectionIn(Schema):
 
 def annotated():
     return Collection.objects.annotate(
-        track_count=Count("tracks"),
+        track_count=Count("tracks", distinct=True),
         total_bytes=Sum("tracks__size_bytes"),
         total_duration_ms=Sum("tracks__duration_ms"),
+        # Files that are, or have been downsized to, MP3.
+        mp3_count=Count(
+            "tracks",
+            filter=Q(tracks__file__iendswith=".mp3") | Q(tracks__optimized_file__iendswith=".mp3"),
+            distinct=True,
+        ),
+        transcribed_count=Count("tracks", filter=Q(tracks__transcript__status="ready"), distinct=True),
     )
 
 

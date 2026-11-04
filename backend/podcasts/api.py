@@ -30,6 +30,7 @@ class PodcastOut(Schema):
     downloaded_count: int = 0
     downloaded_bytes: int = 0
     total_duration_ms: int = 0
+    transcribed_count: int = 0
 
 
 class EpisodeOut(Schema):
@@ -65,6 +66,9 @@ def annotated():
         downloaded_count=Count("episodes", filter=Q(episodes__status=Episode.Status.READY), distinct=True),
         downloaded_bytes=Sum("episodes__track__size_bytes"),
         total_duration_ms=Sum("episodes__duration_ms"),
+        transcribed_count=Count(
+            "episodes", filter=Q(episodes__track__transcript__status="ready"), distinct=True
+        ),
     )
 
 
