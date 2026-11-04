@@ -163,7 +163,12 @@ def _names(people) -> str:
 
 def book_fields(item: dict) -> dict:
     status = item.get("listening_status") or {}
-    series = (item.get("series") or [{}])[0] or {}
+    all_series = [
+        {"title": (s.get("title") or "")[:300], "position": str(s.get("sequence") or "")[:20]}
+        for s in (item.get("series") or [])
+        if s and s.get("title")
+    ]
+    series = all_series[0] if all_series else {"title": "", "position": ""}
     images = item.get("product_images") or {}
     release = item.get("release_date")
     purchased = item.get("purchase_date")
@@ -175,8 +180,9 @@ def book_fields(item: dict) -> dict:
         "subtitle": (item.get("subtitle") or "")[:500],
         "authors": _names(item.get("authors"))[:500],
         "narrators": _names(item.get("narrators"))[:500],
-        "series": (series.get("title") or "")[:300],
-        "series_position": str(series.get("sequence") or "")[:20],
+        "series": series["title"],
+        "series_position": series["position"],
+        "series_list": all_series,
         "summary": item.get("merchandising_summary") or item.get("publisher_summary") or "",
         "cover_url": images.get("1215") or images.get("500") or "",
         "runtime_min": item.get("runtime_length_min") or 0,

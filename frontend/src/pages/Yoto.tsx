@@ -204,17 +204,23 @@ const allSeries = (b: Book) => (b.series_list?.length ? b.series_list : b.series
 /**
  * Books grouped into series (two or more ready books) and standalones, all in reading order.
  * Audible can list several series for a book, in any order, so each book joins the one it shares
- * with the most other books here (the first listed wins a tie). Books in a block carry that
- * series' name and position.
+ * with the most other books here; a tie goes to the series more books list first, so every book
+ * settles the same way. Books in a block carry that series' name and position.
  */
 function bookBlocks(books: Book[]): BookBlock[] {
   const count = new Map<string, number>();
-  for (const b of books) for (const t of new Set(allSeries(b).map((s) => s.title))) count.set(t, (count.get(t) ?? 0) + 1);
+  const first = new Map<string, number>();
+  for (const b of books) {
+    const list = allSeries(b);
+    for (const t of new Set(list.map((s) => s.title))) count.set(t, (count.get(t) ?? 0) + 1);
+    if (list[0]) first.set(list[0].title, (first.get(list[0].title) ?? 0) + 1);
+  }
+  const score = (t: string) => (count.get(t) ?? 0) * books.length + (first.get(t) ?? 0);
   const bySeries = new Map<string, Book[]>();
   const blocks: BookBlock[] = [];
   for (const b of books) {
     let best: { title: string; position: string } | undefined;
-    for (const s of allSeries(b)) if ((count.get(s.title) ?? 0) > 1 && (!best || count.get(s.title)! > count.get(best.title)!)) best = s;
+    for (const s of allSeries(b)) if ((count.get(s.title) ?? 0) > 1 && (!best || score(s.title) > score(best.title))) best = s;
     if (best) bySeries.set(best.title, [...(bySeries.get(best.title) ?? []), { ...b, series: best.title, series_position: best.position }]);
     else blocks.push({ name: b.title, series: "", books: [b] });
   }

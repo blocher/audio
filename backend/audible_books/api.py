@@ -43,6 +43,7 @@ class BookOut(Schema):
     narrators: str
     series: str
     series_position: str
+    series_list: list[dict]
     cover_url: str
     runtime_min: int
     release_date: date | None
@@ -172,7 +173,11 @@ def list_books(
         qs = qs.filter(account_id=account_id)
     if q:
         qs = qs.filter(
-            Q(title__icontains=q) | Q(authors__icontains=q) | Q(narrators__icontains=q) | Q(series__icontains=q)
+            Q(title__icontains=q)
+            | Q(authors__icontains=q)
+            | Q(narrators__icontains=q)
+            | Q(series__icontains=q)
+            | Q(series_list__icontains=q)
         )
     if status == "converted":
         qs = qs.filter(status=Book.Status.READY)

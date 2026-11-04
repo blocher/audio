@@ -43,6 +43,8 @@ class Book(TimeStamped):
     narrators = models.CharField(max_length=500, blank=True)
     series = models.CharField(max_length=300, blank=True)
     series_position = models.CharField(max_length=20, blank=True)
+    # Every series Audible lists, in its order: [{"title": ..., "position": ...}]. `series` is the first.
+    series_list = models.JSONField(default=list, blank=True)
     summary = models.TextField(blank=True)
     cover_url = models.URLField(max_length=500, blank=True)
     runtime_min = models.PositiveIntegerField(default=0)
