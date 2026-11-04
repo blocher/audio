@@ -12,7 +12,7 @@ from core.jobs import enqueue
 from core.models import Track
 
 from . import ask, stt
-from .models import Conversation, Transcript
+from .models import Conversation, Message, Transcript
 from .services import timeline, work_tracks
 from .tasks import transcribe_tracks_task
 
@@ -138,11 +138,16 @@ class ConversationDetailOut(ConversationOut):
         return list(obj.messages.all())
 
 
+def mine(request):
+    """Conversations are private to whoever started them."""
+    return Conversation.objects.filter(owner=request.user)
+
+
 @router.get("/conversations", response=list[ConversationOut])
 def list_conversations(
     request, book_id: int | None = None, episode_id: int | None = None, collection_id: int | None = None
 ):
-    qs = Conversation.objects.all()
+    qs = mine(request)
     if book_id:
         qs = qs.filter(book_id=book_id)
     if episode_id:
@@ -161,12 +166,12 @@ def create_conversation(request, payload: WorkQuery):
 
 @router.get("/conversations/{cid}", response=ConversationDetailOut)
 def get_conversation(request, cid: int):
-    return get_object_or_404(Conversation, pk=cid)
+    return get_object_or_404(mine(request), pk=cid)
 
 
 @router.delete("/conversations/{cid}")
 def delete_conversation(request, cid: int):
-    get_object_or_404(Conversation, pk=cid).delete()
+    get_object_or_404(mine(request), pk=cid).delete()
     return {"ok": True}
 
 
@@ -181,9 +186,7 @@ class AskIn(Schema):
 @router.post("/conversations/{cid}/ask")
 def ask_question(request, cid: int, payload: AskIn):
     """Streams newline-delimited JSON events: {"type":"text"} deltas, then {"type":"done"} or {"type":"error"}."""
-    conversation = get_object_or_404(
-        Conversation.objects.select_related("book", "episode__podcast", "collection"), pk=cid
-    )
+    conversation = get_object_or_404(mine(request).select_related("book", "episode__podcast", "collection"), pk=cid)
 
     def events():
         try:
@@ -197,6 +200,8 @@ def ask_question(request, cid: int, payload: AskIn):
             ):
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # surface to the chat UI rather than cutting the stream silently
+            # Kept in the history next to the question it answers; never sent back to the model.
+            Message.objects.create(conversation=conversation, role="error", content=str(exc))
             yield json.dumps({"type": "error", "error": str(exc)}) + "\n"
 
     response = StreamingHttpResponse(events(), content_type="application/x-ndjson")

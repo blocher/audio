@@ -112,3 +112,41 @@ def test_position_before_any_speech_explains_what_to_do(book_conversation, fake_
 
     with pytest.raises(RuntimeError, match="whole book"):
         list(stream_answer(book_conversation, "Hi?", 0))
+
+
+def test_failed_questions_stay_in_history_but_not_in_the_prompt(
+    client, django_user_model, book_conversation, fake_model
+):
+    from transcripts.ask import stream_answer
+
+    user = django_user_model.objects.create_user("reader", password="pw")
+    book_conversation.owner = user
+    book_conversation.save()
+    client.force_login(user)
+
+    url = f"/api/transcripts/conversations/{book_conversation.pk}/ask"
+    body = b"".join(client.post(url, {"question": "Hi?", "position_ms": 0}, content_type="application/json"))
+    assert b'"type": "error"' in body
+    saved = list(book_conversation.messages.values_list("role", "content"))
+    assert saved[0] == ("user", "Hi?") and saved[1][0] == "error"
+    book_conversation.refresh_from_db()
+    assert book_conversation.title == "Hi?"
+
+    list(stream_answer(book_conversation, "So far?", 300_000))
+    assert [m["content"] for m in fake_model["messages"]] == ["So far?"]
+
+
+def test_conversations_are_private_to_their_owner(client, django_user_model, book_conversation):
+    owner = django_user_model.objects.create_user("owner", password="pw")
+    other = django_user_model.objects.create_user("other", password="pw")
+    book_conversation.owner = owner
+    book_conversation.save()
+    url = f"/api/transcripts/conversations/{book_conversation.pk}"
+
+    client.force_login(other)
+    assert client.get(f"/api/transcripts/conversations?book_id={book_conversation.book_id}").json() == []
+    assert client.get(url).status_code == 404
+    assert client.delete(url).status_code == 404
+
+    client.force_login(owner)
+    assert client.get(url).status_code == 200

@@ -58,7 +58,7 @@ class Conversation(TimeStamped):
 
 class Message(TimeStamped):
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="messages")
-    role = models.CharField(max_length=10)  # "user" | "assistant"
+    role = models.CharField(max_length=10)  # "user" | "assistant" | "error" (a question that got no answer)
     content = models.TextField()
     position_ms = models.BigIntegerField(default=0, help_text="Spoiler horizon used for this question")
     whole_work = models.BooleanField(default=False, help_text="Asked about the whole work, spoilers allowed")

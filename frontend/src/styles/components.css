@@ -1378,6 +1378,14 @@ mark {
   border-bottom-left-radius: 4px;
 }
 
+.bubble.error {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+  background: var(--berry-soft);
+  color: var(--berry);
+  border-bottom-left-radius: 4px;
+}
+
 .bubble .cite {
   display: inline-flex;
   align-items: center;

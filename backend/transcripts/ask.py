@@ -294,6 +294,19 @@ def stream_model(provider: str, model: str, system: str, context: str, messages:
     raise RuntimeError(f"Unknown provider {provider}")
 
 
+def answered_turns(messages) -> list[dict]:
+    """Question/answer pairs for the model, leaving out questions that failed and the errors they got."""
+    turns: list[dict] = []
+    pending = None
+    for m in messages:
+        if m.role == "user":
+            pending = m
+        elif m.role == "assistant" and pending is not None:
+            turns += [{"role": "user", "content": pending.content}, {"role": "assistant", "content": m.content}]
+            pending = None
+    return turns
+
+
 def stream_answer(
     conversation: Conversation,
     question: str,
@@ -307,6 +320,14 @@ def stream_answer(
     Normally the model only sees the transcript up to ``position_ms``; with ``whole_work`` it sees all of it and is
     told spoilers are fine.
     """
+    # Save the question first, so it stays in the history even if answering it fails.
+    asked = Message.objects.create(
+        conversation=conversation, role="user", content=question, position_ms=position_ms, whole_work=whole_work
+    )
+    if not conversation.title:
+        conversation.title = question[:120]
+    conversation.save(update_fields=["title", "updated_at"])
+
     provider, model = ai.resolve("chat", provider, model)
     all_passages = passages(conversation, None if whole_work else position_ms)
     if not all_passages:
@@ -318,18 +339,15 @@ def stream_answer(
             f"Move the spoiler limit later, or ask about the {whole}."
         )
 
-    earlier = conversation.messages.order_by("created_at", "id")
+    earlier = conversation.messages.exclude(pk=asked.pk).order_by("created_at", "id")
     if not whole_work:
         # Whole-work answers can hold spoilers; keep them out of a spoiler-safe question's context.
         earlier = earlier.filter(whole_work=False)
-    history = [{"role": m.role, "content": m.content} for m in earlier]
+    history = answered_turns(earlier)
     history_chars = sum(len(m["content"]) for m in history) + len(question)
     budget_chars = int(budget_tokens(provider, model, history_chars) * CHARS_PER_TOKEN)
     selected, excerpted = fit(all_passages, budget_chars, question)
 
-    Message.objects.create(
-        conversation=conversation, role="user", content=question, position_ms=position_ms, whole_work=whole_work
-    )
     scope = " (asking about the whole work; spoilers allowed)" if whole_work else ""
     context = (
         f"Work: {work_title(conversation)}\nListener's position: {fmt_time(position_ms)}{scope}\n\n"
@@ -371,9 +389,7 @@ def stream_answer(
         input_tokens=usage.get("input", 0),
         output_tokens=usage.get("output", 0),
     )
-    if not conversation.title:
-        conversation.title = question[:120]
-    conversation.save(update_fields=["title", "updated_at"])
+    conversation.save(update_fields=["updated_at"])
     yield {
         "type": "done",
         "message_id": message.pk,

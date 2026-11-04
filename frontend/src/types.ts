@@ -258,7 +258,7 @@ export interface WorkTranscript {
 
 export interface ChatMessage {
   id: number;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "error";
   content: string;
   position_ms: number;
   whole_work?: boolean;

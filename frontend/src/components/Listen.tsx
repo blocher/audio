@@ -180,8 +180,12 @@ export function AskPanel({
   const logRef = useRef<HTMLDivElement>(null);
   const effectiveHorizon = horizon ?? positionMs;
 
+  // Open the latest conversation once on arrival; after that, "New conversation" really means a new one.
+  const autoOpened = useRef(false);
   useEffect(() => {
-    if (activeId === null && conversations.data?.length) setActiveId(conversations.data[0].id);
+    if (autoOpened.current || !conversations.data) return;
+    autoOpened.current = true;
+    if (activeId === null && conversations.data.length) setActiveId(conversations.data[0].id);
   }, [conversations.data, activeId]);
 
   // A conversation created by the question being asked right now: its messages are already on screen.
@@ -238,7 +242,8 @@ export function AskPanel({
         } else if (event.type === "notice") {
           setNotice(event.text);
         } else if (event.type === "error") {
-          setError(event.error);
+          const failed = { id: -2, role: "error" as const, content: event.error, ...asked, citations: [], model: "", created_at: "" };
+          setMessages((m) => [...m, failed]);
         } else if (event.type === "done") {
           setMessages((m) => [
             ...m,
@@ -331,7 +336,7 @@ export function AskPanel({
           )}
           {messages.map((m, i) => (
             <div key={`${m.id}-${i}`} className={`bubble ${m.role}`}>
-              {m.role === "assistant" ? renderAnswer(m.content, playAt) : m.content}
+              {m.role === "assistant" ? renderAnswer(m.content, playAt) : m.role === "error" ? `No answer: ${m.content}` : m.content}
               {m.role === "user" && (
                 <div className="bubble-meta" style={{ color: "rgb(255 248 241 / 0.7)" }}>
                   {m.whole_work ? `whole ${noun}` : `up to ${clock(m.position_ms)}`}
