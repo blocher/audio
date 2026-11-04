@@ -65,7 +65,13 @@ export default function PodcastDetail() {
           <div className="facts">
             <div><b>{p.episode_count}</b>Episodes</div>
             <div><b>{p.downloaded_count}</b>Saved</div>
-            <div><b>{bytes(p.downloaded_bytes)}</b>On server</div>
+            <div><b>{bytes(p.downloaded_bytes)}</b>{p.downsized_count ? "Originals" : "On server"}</div>
+            {p.downsized_count > 0 && (
+              <div title={p.downsized_count < p.downloaded_count ? "Episodes not yet downsized count at their original size" : undefined}>
+                <b>{bytes(p.downsized_bytes)}</b>
+                {p.downsized_count < p.downloaded_count ? `Downsized (${p.downsized_count} of ${p.downloaded_count})` : "Downsized"}
+              </div>
+            )}
             <div><b>{duration(p.total_duration_ms)}</b>Total listening</div>
             <div><b>{relative(p.last_refreshed_at)}</b>Checked</div>
           </div>

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Case, Count, F, Q, Sum, When
 from django.shortcuts import get_object_or_404
 from ninja import Field, Router, Schema
 from ninja.errors import HttpError
@@ -29,6 +29,8 @@ class PodcastOut(Schema):
     episode_count: int = 0
     downloaded_count: int = 0
     downloaded_bytes: int = 0
+    downsized_count: int = 0
+    downsized_bytes: int = 0  # saved episodes at their current size: downsized where done, original otherwise
     total_duration_ms: int = 0
     transcribed_count: int = 0
 
@@ -65,6 +67,13 @@ def annotated():
         episode_count=Count("episodes", distinct=True),
         downloaded_count=Count("episodes", filter=Q(episodes__status=Episode.Status.READY), distinct=True),
         downloaded_bytes=Sum("episodes__track__size_bytes"),
+        downsized_count=Count("episodes", filter=Q(episodes__track__optimized_size_bytes__gt=0), distinct=True),
+        downsized_bytes=Sum(
+            Case(
+                When(episodes__track__optimized_size_bytes__gt=0, then=F("episodes__track__optimized_size_bytes")),
+                default=F("episodes__track__size_bytes"),
+            )
+        ),
         total_duration_ms=Sum("episodes__duration_ms"),
         transcribed_count=Count(
             "episodes", filter=Q(episodes__track__transcript__status="ready"), distinct=True
@@ -77,6 +86,7 @@ def list_podcasts(request):
     rows = list(annotated())
     for row in rows:
         row.downloaded_bytes = row.downloaded_bytes or 0
+        row.downsized_bytes = row.downsized_bytes or 0
         row.total_duration_ms = row.total_duration_ms or 0
     return rows
 
@@ -106,6 +116,7 @@ def add_podcast(request, payload: SubscribeIn):
 def _one(pk: int) -> Podcast:
     podcast = get_object_or_404(annotated(), pk=pk)
     podcast.downloaded_bytes = podcast.downloaded_bytes or 0
+    podcast.downsized_bytes = podcast.downsized_bytes or 0
     podcast.total_duration_ms = podcast.total_duration_ms or 0
     return podcast
 

@@ -108,6 +108,8 @@ export interface Podcast {
   episode_count: number;
   downloaded_count: number;
   downloaded_bytes: number;
+  downsized_count: number;
+  downsized_bytes: number;
   total_duration_ms: number;
   transcribed_count: number;
 }

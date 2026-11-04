@@ -36,6 +36,7 @@ export default function Podcasts() {
               <Progress value={p.episode_count ? p.downloaded_count / p.episode_count : 0} />
               <div className="cover-meta tabular">
                 {p.downloaded_count}/{p.episode_count} saved · {bytes(p.downloaded_bytes)}
+                {p.downsized_count > 0 && <> → {bytes(p.downsized_bytes)}</>}
               </div>
             </Link>
           ))}
