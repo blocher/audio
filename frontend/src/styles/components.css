@@ -348,6 +348,19 @@
   color: #fff8f1;
 }
 
+.chip.toggle {
+  height: 32px;
+  padding: 0 12px;
+  border-color: var(--paper-line);
+  font-size: var(--text-sm);
+}
+
+.chip.toggle.active {
+  background: var(--sage-soft);
+  border-color: var(--sage);
+  color: var(--ink);
+}
+
 .chip .n {
   font-size: var(--text-xs);
   opacity: 0.75;

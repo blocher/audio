@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, CheckCircle2, Folder, Headphones, Mic, Plus, RefreshCw, Search, SquareStack } from "lucide-react";
+import { BookOpen, Check, CheckCircle2, FileText, Folder, Headphones, Mic, Plus, RefreshCw, Search, SquareStack } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
@@ -22,6 +22,7 @@ interface Item {
   meta: string;
   source: string;
   ready?: boolean;
+  transcribed?: boolean;
   sortDate: string;
 }
 
@@ -31,6 +32,10 @@ export default function Library() {
   const toast = useToast();
   const kind = (params.get("kind") as Kind) || "all";
   const accountId = params.get("account");
+  // The MP3 / transcript filters only make sense for audiobooks, so they apply in the Audible view.
+  const booksView = kind === "books" || !!accountId;
+  const onlyMp3 = booksView && params.get("mp3") === "1";
+  const onlyTranscribed = booksView && params.get("transcribed") === "1";
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<"recent" | "title" | "progress">("recent");
 
@@ -56,6 +61,7 @@ export default function Library() {
         meta: duration(b.runtime_min * 60000),
         source: `Audible · ${b.account_name}`,
         ready: b.status === "ready",
+        transcribed: b.transcribed_count > 0,
         sortDate: b.purchase_date ?? "",
       });
     }
@@ -89,7 +95,11 @@ export default function Library() {
     const needle = q.trim().toLowerCase();
     const kindMap: Record<Kind, Item["kind"] | null> = { all: null, books: "book", podcasts: "podcast", local: "local" };
     const filtered = out.filter(
-      (i) => (!kindMap[kind] || i.kind === kindMap[kind]) && (!needle || `${i.title} ${i.by}`.toLowerCase().includes(needle)),
+      (i) =>
+        (!kindMap[kind] || i.kind === kindMap[kind]) &&
+        (!needle || `${i.title} ${i.by}`.toLowerCase().includes(needle)) &&
+        (!onlyMp3 || i.ready) &&
+        (!onlyTranscribed || i.transcribed),
     );
     filtered.sort((a, b) =>
       sort === "title"
@@ -99,7 +109,7 @@ export default function Library() {
           : b.sortDate.localeCompare(a.sortDate),
     );
     return filtered;
-  }, [books.data, podcasts.data, folders.data, kind, q, sort, accountId]);
+  }, [books.data, podcasts.data, folders.data, kind, q, sort, accountId, onlyMp3, onlyTranscribed]);
 
   const counts = {
     all: (books.data?.length ?? 0) + (podcasts.data?.length ?? 0) + (folders.data?.length ?? 0),
@@ -107,12 +117,23 @@ export default function Library() {
     podcasts: podcasts.data?.length ?? 0,
     local: folders.data?.length ?? 0,
   };
+  const accountBooks = (books.data ?? []).filter((b) => !accountId || String(b.account_id) === accountId);
+  const filterCounts = {
+    mp3: accountBooks.filter((b) => b.status === "ready").length,
+    transcribed: accountBooks.filter((b) => b.transcribed_count > 0).length,
+  };
   const loading = books.isLoading || podcasts.isLoading || folders.isLoading;
   const account = accounts.data?.find((a) => String(a.id) === accountId);
   const setKind = (k: Kind) => {
     const next = new URLSearchParams(params);
     if (k === "all") next.delete("kind");
     else next.set("kind", k);
+    setParams(next);
+  };
+  const toggleFilter = (key: "mp3" | "transcribed") => {
+    const next = new URLSearchParams(params);
+    if (next.get(key) === "1") next.delete(key);
+    else next.set(key, "1");
     setParams(next);
   };
 
@@ -161,6 +182,21 @@ export default function Library() {
                 </button>
               ))}
             </div>
+            {booksView && (
+              <div className="chips filter-chips" role="group" aria-label="Filter audiobooks">
+                {(
+                  [
+                    ["mp3", "MP3 ready", onlyMp3, <CheckCircle2 size={15} key="m" />],
+                    ["transcribed", "Transcribed", onlyTranscribed, <FileText size={15} key="t" />],
+                  ] as const
+                ).map(([k, label, on, icon]) => (
+                  <button key={k} className={`chip toggle ${on ? "active" : ""}`} aria-pressed={on} onClick={() => toggleFilter(k)}>
+                    {on ? <Check size={15} /> : icon}
+                    {label} <span className="n">{filterCounts[k]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <span className="spacer" />
             <div className="segmented" role="group" aria-label="Sort">
               {(["recent", "title", "progress"] as const).map((s) => (
