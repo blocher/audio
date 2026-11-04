@@ -100,3 +100,32 @@ class Track(TimeStamped):
     @property
     def best_size_bytes(self) -> int:
         return self.optimized_size_bytes or self.size_bytes
+
+
+class Star(TimeStamped):
+    """Something one user has starred to keep it on their home page. Starring is personal; the library is shared."""
+
+    class Kind(models.TextChoices):
+        BOOK = "book"
+        PODCAST = "podcast"
+        FOLDER = "folder"
+
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="stars")
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    book = models.ForeignKey("audible_books.Book", null=True, blank=True, on_delete=models.CASCADE, related_name="+")
+    podcast = models.ForeignKey("podcasts.Podcast", null=True, blank=True, on_delete=models.CASCADE, related_name="+")
+    folder = models.ForeignKey(
+        "local_audio.Collection", null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "book"], name="one_star_per_book"),
+            models.UniqueConstraint(fields=["user", "podcast"], name="one_star_per_podcast"),
+            models.UniqueConstraint(fields=["user", "folder"], name="one_star_per_folder"),
+        ]
+
+    @property
+    def target_id(self) -> int:
+        return getattr(self, f"{self.kind}_id")

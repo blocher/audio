@@ -1,30 +1,78 @@
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Check, CheckCircle2, FileText, Folder, Headphones, Mic, Plus, RefreshCw, Search, SquareStack } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  BookOpen,
+  Check,
+  CheckCircle2,
+  CircleCheckBig,
+  FileText,
+  Folder,
+  Headphones,
+  Hourglass,
+  Mic,
+  Plus,
+  RefreshCw,
+  Search,
+  Star,
+} from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
-import { Button, Cover, Empty, Meter, PageHead, Progress, SourceIcon, Spinner, useToast } from "../components/ui";
-import { bytes, duration, relative } from "../format";
+import {
+  ContinueListening,
+  CoverGrid,
+  GridSkeleton,
+  YotoRail,
+  useLibraryItems,
+  type LibraryItem,
+} from "../components/LibraryGrid";
+import { Button, Empty, PageHead, useToast } from "../components/ui";
+import { relative } from "../format";
 import { useAction } from "../hooks/queries";
-import { usePlayer } from "../player";
-import type { AudibleAccount, Book, Collection, Playlist, Podcast } from "../types";
+import type { AudibleAccount, Playlist } from "../types";
 
 type Kind = "all" | "books" | "podcasts" | "local";
 
-interface Item {
+/** Library filters, each kept in the URL so a filtered view can be bookmarked or shared. */
+const FILTERS: {
   key: string;
-  kind: "book" | "podcast" | "local";
-  title: string;
-  by: string;
-  cover: string;
-  to: string;
-  progress?: number;
-  meta: string;
-  source: string;
-  ready?: boolean;
-  transcribed?: boolean;
-  sortDate: string;
-}
+  label: string;
+  icon: ReactNode;
+  test: (i: LibraryItem) => boolean;
+  booksOnly?: boolean;
+}[] = [
+  {
+    key: "starred",
+    label: "Starred",
+    icon: <Star size={15} />,
+    test: (i) => !!i.starredAt,
+  },
+  {
+    key: "transcribed",
+    label: "Has transcript",
+    icon: <FileText size={15} />,
+    test: (i) => !!i.transcribed,
+  },
+  {
+    key: "mp3",
+    label: "MP3 ready",
+    icon: <CheckCircle2 size={15} />,
+    test: (i) => !!i.ready,
+  },
+  {
+    key: "listening",
+    label: "In progress",
+    icon: <Hourglass size={15} />,
+    test: (i) => !!i.inProgress,
+    booksOnly: true,
+  },
+  {
+    key: "finished",
+    label: "Finished",
+    icon: <CircleCheckBig size={15} />,
+    test: (i) => !!i.finished,
+    booksOnly: true,
+  },
+];
 
 export default function Library() {
   const [params, setParams] = useSearchParams();
@@ -32,80 +80,38 @@ export default function Library() {
   const toast = useToast();
   const kind = (params.get("kind") as Kind) || "all";
   const accountId = params.get("account");
-  const onlyMp3 = params.get("mp3") === "1";
-  const onlyTranscribed = params.get("transcribed") === "1";
+  const active = FILTERS.filter((f) => params.get(f.key) === "1");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<"recent" | "title" | "progress">("recent");
 
-  const accounts = useQuery({ queryKey: ["audible-accounts"], queryFn: () => api.get<AudibleAccount[]>("/audible/accounts") });
-  const books = useQuery({ queryKey: ["books"], queryFn: () => api.get<Book[]>("/audible/books") });
-  const podcasts = useQuery({ queryKey: ["podcasts"], queryFn: () => api.get<Podcast[]>("/podcasts") });
-  const folders = useQuery({ queryKey: ["collections"], queryFn: () => api.get<Collection[]>("/local/collections") });
-  const playlists = useQuery({ queryKey: ["playlists"], queryFn: () => api.get<Playlist[]>("/yoto/playlists") });
+  const accounts = useQuery({
+    queryKey: ["audible-accounts"],
+    queryFn: () => api.get<AudibleAccount[]>("/audible/accounts"),
+  });
+  const playlists = useQuery({
+    queryKey: ["playlists"],
+    queryFn: () => api.get<Playlist[]>("/yoto/playlists"),
+  });
+  const library = useLibraryItems();
   const sync = useAction((id: number) => api.post(`/audible/accounts/${id}/sync`), [["books"]]);
 
-  // Everything in the current tab and account, before search and the MP3 / transcript filters.
-  const inView = useMemo<Item[]>(() => {
-    const out: Item[] = [];
-    for (const b of books.data ?? []) {
-      if (accountId && String(b.account_id) !== accountId) continue;
-      out.push({
-        key: `b${b.id}`,
-        kind: "book",
-        title: b.title,
-        by: b.authors,
-        cover: b.cover_url,
-        to: `/books/${b.id}`,
-        progress: b.is_finished ? 1 : b.percent_complete / 100,
-        meta: duration(b.runtime_min * 60000),
-        source: `Audible · ${b.account_name}`,
-        ready: b.status === "ready",
-        transcribed: b.transcribed_count > 0,
-        sortDate: b.purchase_date ?? "",
-      });
-    }
-    if (!accountId) {
-      for (const p of podcasts.data ?? [])
-        out.push({
-          key: `p${p.id}`,
-          kind: "podcast",
-          title: p.title,
-          by: p.author,
-          cover: p.image_url,
-          to: `/podcasts/${p.id}`,
-          progress: p.episode_count ? p.downloaded_count / p.episode_count : 0,
-          meta: `${p.downloaded_count} of ${p.episode_count} saved`,
-          source: "Podcast",
-          ready: p.downloaded_count > 0,
-          transcribed: p.transcribed_count > 0,
-          sortDate: p.last_refreshed_at ?? "",
-        });
-      for (const c of folders.data ?? [])
-        out.push({
-          key: `c${c.id}`,
-          kind: "local",
-          title: c.name,
-          by: `${c.track_count} files`,
-          cover: "",
-          to: `/folders/${c.id}`,
-          meta: duration(c.total_duration_ms),
-          source: "Local folder",
-          ready: c.mp3_count > 0,
-          transcribed: c.transcribed_count > 0,
-          sortDate: c.created_at,
-        });
-    }
-    const kindMap: Record<Kind, Item["kind"] | null> = { all: null, books: "book", podcasts: "podcast", local: "local" };
-    return out.filter((i) => !kindMap[kind] || i.kind === kindMap[kind]);
-  }, [books.data, podcasts.data, folders.data, kind, accountId]);
+  // Everything in the current tab and account, before search and the filters.
+  const inView = useMemo(() => {
+    const kindMap: Record<Kind, LibraryItem["kind"] | null> = {
+      all: null,
+      books: "book",
+      podcasts: "podcast",
+      local: "folder",
+    };
+    return library.items.filter(
+      (i) => (!kindMap[kind] || i.kind === kindMap[kind]) && (!accountId || String(i.accountId) === accountId),
+    );
+  }, [library.items, kind, accountId]);
 
-  const items = useMemo<Item[]>(() => {
+  const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const filtered = inView.filter(
-      (i) =>
-        (!needle || `${i.title} ${i.by}`.toLowerCase().includes(needle)) &&
-        (!onlyMp3 || i.ready) &&
-        (!onlyTranscribed || i.transcribed),
+      (i) => (!needle || `${i.title} ${i.by}`.toLowerCase().includes(needle)) && active.every((f) => f.test(i)),
     );
     filtered.sort((a, b) =>
       sort === "title"
@@ -115,19 +121,15 @@ export default function Library() {
           : b.sortDate.localeCompare(a.sortDate),
     );
     return filtered;
-  }, [inView, q, sort, onlyMp3, onlyTranscribed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inView, q, sort, params]);
 
   const counts = {
-    all: (books.data?.length ?? 0) + (podcasts.data?.length ?? 0) + (folders.data?.length ?? 0),
-    books: books.data?.length ?? 0,
-    podcasts: podcasts.data?.length ?? 0,
-    local: folders.data?.length ?? 0,
+    all: library.items.length,
+    books: library.books.length,
+    podcasts: library.podcasts.length,
+    local: library.folders.length,
   };
-  const filterCounts = {
-    mp3: inView.filter((i) => i.ready).length,
-    transcribed: inView.filter((i) => i.transcribed).length,
-  };
-  const loading = books.isLoading || podcasts.isLoading || folders.isLoading;
   const account = accounts.data?.find((a) => String(a.id) === accountId);
   const setKind = (k: Kind) => {
     const next = new URLSearchParams(params);
@@ -135,18 +137,25 @@ export default function Library() {
     else next.set("kind", k);
     setParams(next);
   };
-  const toggleFilter = (key: "mp3" | "transcribed") => {
+  const toggleFilter = (key: string) => {
     const next = new URLSearchParams(params);
     if (next.get(key) === "1") next.delete(key);
     else next.set(key, "1");
     setParams(next);
   };
+  // Book-only filters are hidden where there are no books to apply them to.
+  const hasBooks = inView.some((i) => i.kind === "book");
+  const shown = FILTERS.filter((f) => !f.booksOnly || hasBooks || active.includes(f));
 
   return (
     <>
       <PageHead
         title={account ? `${account.name}'s library` : "Your listening library"}
-        lede={account ? `${account.book_count} titles on Audible · synced ${relative(account.last_synced_at)}` : "Good stories, all in one place."}
+        lede={
+          account
+            ? `${account.book_count} titles on Audible · synced ${relative(account.last_synced_at)}`
+            : "Everything everyone has added, in one place."
+        }
         actions={
           <>
             <div className="search">
@@ -157,7 +166,11 @@ export default function Library() {
               <Button
                 icon={<RefreshCw size={16} />}
                 loading={sync.isPending}
-                onClick={() => sync.mutate(account.id, { onSuccess: () => toast("Syncing library from Audible…") })}
+                onClick={() =>
+                  sync.mutate(account.id, {
+                    onSuccess: () => toast("Syncing library from Audible…"),
+                  })
+                }
               >
                 Sync
               </Button>
@@ -188,78 +201,40 @@ export default function Library() {
               ))}
             </div>
             <div className="chips filter-chips" role="group" aria-label="Filter audio">
-              {(
-                [
-                  ["mp3", "MP3 ready", onlyMp3, <CheckCircle2 size={15} key="m" />],
-                  ["transcribed", "Transcribed", onlyTranscribed, <FileText size={15} key="t" />],
-                ] as const
-              ).map(([k, label, on, icon]) => (
-                <button key={k} className={`chip toggle ${on ? "active" : ""}`} aria-pressed={on} onClick={() => toggleFilter(k)}>
-                  {on ? <Check size={15} /> : icon}
-                  {label} <span className="n">{filterCounts[k]}</span>
-                </button>
-              ))}
+              {shown.map((f) => {
+                const on = active.includes(f);
+                return (
+                  <button
+                    key={f.key}
+                    className={`chip toggle ${on ? "active" : ""}`}
+                    aria-pressed={on}
+                    onClick={() => toggleFilter(f.key)}
+                  >
+                    {on ? <Check size={15} /> : f.icon}
+                    {f.label} <span className="n">{inView.filter(f.test).length}</span>
+                  </button>
+                );
+              })}
             </div>
             <span className="spacer" />
             <div className="segmented" role="group" aria-label="Sort">
               {(["recent", "title", "progress"] as const).map((s) => (
                 <button key={s} className={sort === s ? "active" : ""} onClick={() => setSort(s)}>
-                  {s === "recent" ? "Recent" : s === "title" ? "A–Z" : "In progress"}
+                  {s === "recent" ? "Recent" : s === "title" ? "A–Z" : "Progress"}
                 </button>
               ))}
             </div>
           </div>
 
-          {loading ? (
-            <div className="cover-grid">
-              {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="stack">
-                  <div className="skeleton" style={{ aspectRatio: "1" }} />
-                  <div className="skeleton" style={{ height: 16, width: "70%" }} />
-                </div>
-              ))}
-            </div>
+          {library.loading ? (
+            <GridSkeleton />
           ) : items.length ? (
-            <div className="cover-grid">
-              {items.map((item) => (
-                <Link key={item.key} to={item.to} className="cover-card">
-                  <div style={{ position: "relative" }}>
-                    {item.kind === "local" ? (
-                      <div className="cover">
-                        <div className="fallback" style={{ background: "linear-gradient(150deg, var(--sage-soft), var(--paper-edge))" }}>
-                          <Folder size={42} strokeWidth={1.3} />
-                        </div>
-                      </div>
-                    ) : (
-                      <Cover src={item.cover} title={item.title} />
-                    )}
-                    {item.ready && (
-                      <span className="pill solid" style={{ position: "absolute", top: 8, right: 8 }}>
-                        <CheckCircle2 size={12} /> MP3
-                      </span>
-                    )}
-                  </div>
-                  <div className="cover-title">{item.title}</div>
-                  <div className="cover-meta">
-                    {item.kind === "book" ? <SourceIcon kind="audible" /> : item.kind === "podcast" ? <Mic size={13} /> : <Folder size={13} />}
-                    <span className="truncate">{item.kind === "book" ? item.by || item.source : item.source}</span>
-                  </div>
-                  {item.progress !== undefined && (
-                    <div className="row" style={{ "--gap": "8px" } as React.CSSProperties}>
-                      <div style={{ flex: 1 }}>
-                        <Progress value={item.progress} />
-                      </div>
-                      <span className="muted tabular" style={{ fontSize: "var(--text-xs)" }}>
-                        {item.kind === "book" ? `${Math.round((item.progress ?? 0) * 100)}%` : item.meta}
-                      </span>
-                    </div>
-                  )}
-                </Link>
-              ))}
-            </div>
+            <CoverGrid items={items} />
           ) : counts.all ? (
             <Empty icon={<Search size={34} />} title="Nothing matches">
-              Try a different search or filter.
+              {active.some((f) => f.key === "starred")
+                ? "Star a book, podcast or folder to find it here."
+                : "Try a different search or filter."}
             </Empty>
           ) : (
             <Empty
@@ -282,76 +257,5 @@ export default function Library() {
         </aside>
       </div>
     </>
-  );
-}
-
-function ContinueListening() {
-  const p = usePlayer();
-  if (!p.current) return null;
-  return (
-    <div className="panel">
-      <div className="eyebrow" style={{ marginBottom: 10 }}>
-        Continue listening
-      </div>
-      <div className="row" style={{ "--gap": "14px", alignItems: "flex-start" } as React.CSSProperties}>
-        {p.current.cover && <img src={p.current.cover} alt="" style={{ width: 64, height: 64, borderRadius: 8, objectFit: "cover" }} />}
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="serif" style={{ fontWeight: 600, fontSize: "var(--text-lg)" }}>
-            {p.current.subtitle}
-          </div>
-          <div className="muted truncate" style={{ fontSize: "var(--text-sm)" }}>
-            {p.current.title}
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <Progress value={p.durationMs ? p.positionMs / p.durationMs : 0} tone="terracotta" />
-          </div>
-        </div>
-      </div>
-      <Button variant="primary" style={{ width: "100%", marginTop: 14 }} onClick={p.toggle}>
-        {p.playing ? "Pause" : "Resume"}
-      </Button>
-    </div>
-  );
-}
-
-function YotoRail({ playlists, loading }: { playlists: Playlist[]; loading: boolean }) {
-  const recent = playlists.slice(0, 3);
-  const limit = 500 * 1024 * 1024;
-  return (
-    <div className="panel">
-      <div className="panel-head">
-        <h3>Ready for little ears</h3>
-        <SquareStack size={20} color="var(--terracotta)" />
-      </div>
-      {loading ? (
-        <Spinner />
-      ) : recent.length ? (
-        <div className="stack" style={{ "--gap": "14px" } as React.CSSProperties}>
-          {recent.map((p) => (
-            <Link key={p.id} to={`/yoto/playlists/${p.id}`} className="row" style={{ "--gap": "12px", alignItems: "center" } as React.CSSProperties}>
-              <div className="card-art" style={{ width: 46 }}>
-                {p.cover_url ? <img src={p.cover_url} alt="" /> : "♪"}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="truncate" style={{ fontWeight: 600 }}>
-                  {p.title}
-                </div>
-                <div className="muted tabular" style={{ fontSize: "var(--text-xs)", margin: "2px 0 6px" }}>
-                  {duration(p.total_duration_ms)} · {bytes(p.total_bytes)} · {p.status === "synced" ? "on Yoto" : p.status}
-                </div>
-                <Meter value={Math.max(p.total_bytes / limit, p.total_duration_ms / (5 * 3600 * 1000))} />
-              </div>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
-          Turn any book, podcast or folder into Yoto cards — packed to fit as much as possible on each one.
-        </p>
-      )}
-      <Link to="/yoto" className="btn sage" style={{ width: "100%", marginTop: 16 }}>
-        <SquareStack size={17} /> Plan Yoto cards
-      </Link>
-    </div>
   );
 }

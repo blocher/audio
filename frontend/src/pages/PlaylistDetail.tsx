@@ -57,7 +57,7 @@ export default function PlaylistDetail() {
       <Link to="/yoto" className="breadcrumb">
         <ArrowLeft size={15} /> Yoto cards
       </Link>
-      <section className="hero" style={{ gridTemplateColumns: "160px minmax(0,1fr)" }}>
+      <section className="hero playlist">
         <div className="card-art" style={{ width: 160, fontSize: "2.4rem" }}>
           {p.cover_url ? <img src={p.cover_url} alt="" /> : <SquareStack size={40} />}
         </div>

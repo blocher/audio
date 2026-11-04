@@ -526,7 +526,8 @@ input[type="range"] {
 
 @media (max-width: 1180px) {
   .with-rail {
-    grid-template-columns: 1fr;
+    /* minmax(0, …): a plain 1fr grows to fit wide content and pushes the page sideways. */
+    grid-template-columns: minmax(0, 1fr);
   }
   .rail {
     position: static;
@@ -790,6 +791,14 @@ input[type="range"] {
   align-items: start;
 }
 
+.hero.podcast {
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.hero.playlist {
+  grid-template-columns: 160px minmax(0, 1fr);
+}
+
 .hero .cover {
   box-shadow: var(--shadow-lg);
 }
@@ -836,8 +845,10 @@ input[type="range"] {
 }
 
 @media (max-width: 760px) {
-  .hero {
-    grid-template-columns: 1fr;
+  .hero,
+  .hero.podcast,
+  .hero.playlist {
+    grid-template-columns: minmax(0, 1fr);
   }
   .hero .cover {
     max-width: 220px;
@@ -1751,4 +1762,98 @@ code {
 .preset.active {
   border-color: var(--terracotta);
   background: var(--terracotta-soft);
+}
+
+/* ---------- stars ---------- */
+
+.star-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--paper-line);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.star-btn:hover {
+  border-color: var(--honey);
+}
+
+.star-btn.on {
+  color: var(--honey-ink);
+  background: var(--honey-soft);
+  border-color: transparent;
+}
+
+.star-btn.overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 999px;
+  border: 0;
+  background: rgb(0 0 0 / 0.38);
+  color: #fff;
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.cover-card:hover .star-btn.overlay,
+.list-row:hover .star-btn.overlay,
+.star-btn.overlay:focus-visible,
+.star-btn.overlay.on {
+  opacity: 1;
+}
+
+.star-btn.overlay.on {
+  background: var(--honey);
+  color: #fff8f1;
+}
+
+/* Touch screens have no hover, so the star is always there to tap. */
+@media (hover: none) {
+  .star-btn.overlay {
+    opacity: 1;
+  }
+}
+
+.list-row .star-btn.overlay {
+  position: static;
+  background: transparent;
+  color: var(--ink-faint);
+}
+
+.list-row .star-btn.overlay.on {
+  background: transparent;
+  color: var(--honey);
+}
+
+.home-section + .home-section {
+  margin-top: 40px;
+}
+
+.home-section .section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.home-section .section-head h2 {
+  margin: 0;
+}
+
+.home-section .section-head a {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--terracotta-strong);
 }

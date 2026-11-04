@@ -3,6 +3,7 @@ import {
   Activity,
   AudioLines,
   Folder,
+  House,
   LibraryBig,
   LogOut,
   Menu,
@@ -36,7 +37,8 @@ export default function Shell({ user, children }: { user: User; children: ReactN
   }
 
   const nav = [
-    { to: "/", label: "Library", icon: <LibraryBig size={20} />, end: true },
+    { to: "/", label: "Home", icon: <House size={20} />, end: true },
+    { to: "/library", label: "Library", icon: <LibraryBig size={20} /> },
     { to: "/podcasts", label: "Podcasts", icon: <Mic size={20} /> },
     { to: "/folders", label: "Local folders", icon: <Folder size={20} /> },
     { to: "/yoto", label: "Yoto cards", icon: <SquareStack size={20} /> },
@@ -62,7 +64,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
         <div className="sidebar-section">
           <div className="sidebar-label">Connected accounts</div>
           {(audible.data ?? []).map((a) => (
-            <Link key={a.id} to={`/?account=${a.id}`} className="source-link">
+            <Link key={a.id} to={`/library?account=${a.id}`} className="source-link">
               <SourceIcon kind="audible" size={18} />
               <span className="truncate">{a.name} · Audible</span>
               <span className={`dot ${a.connected ? "" : "off"}`} title={a.connected ? "Connected" : "Not connected"} />

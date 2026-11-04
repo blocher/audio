@@ -7,6 +7,7 @@ import CardPlanner from "../components/CardPlanner";
 import { AskPanel, TranscriptView } from "../components/Listen";
 import { TrackStatus, queueFor } from "../components/TrackList";
 import { BitratePicker, DownsizeDialog, TranscribeDialog } from "../components/Tools";
+import { StarButton } from "../components/StarButton";
 import { Button, Cover, Modal, Note, Spinner, errorText, useToast } from "../components/ui";
 import { bytes, date, duration, relative, stripHtml } from "../format";
 import { useAction, useActiveJob } from "../hooks/queries";
@@ -56,7 +57,7 @@ export default function PodcastDetail() {
       <Link to="/podcasts" className="breadcrumb">
         <ArrowLeft size={15} /> Podcasts
       </Link>
-      <section className="hero" style={{ gridTemplateColumns: "200px minmax(0,1fr)" }}>
+      <section className="hero podcast">
         <Cover src={p.image_url} title={p.title} />
         <div>
           <div className="eyebrow">Podcast</div>
@@ -93,6 +94,7 @@ export default function PodcastDetail() {
                 <ExternalLink size={16} /> Apple
               </a>
             )}
+            <StarButton kind="podcast" id={p.id} title={p.title} />
           </div>
           {job && <JobLine job={job} />}
         </div>

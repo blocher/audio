@@ -1,9 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Folder, FolderInput, HardDrive, Plus, Upload } from "lucide-react";
+import { CheckCircle2, FileText, Folder, FolderInput, HardDrive, Plus, Search, Star, Upload } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { useFilters, type Filter } from "../components/LibraryGrid";
+import { StarButton } from "../components/StarButton";
 import { BitratePicker } from "../components/Tools";
+import { useStars } from "../hooks/stars";
 import { Button, Empty, Modal, Note, PageHead, Progress, Spinner, errorText, useToast } from "../components/ui";
 import { bytes, date, duration } from "../format";
 import type { Collection, Job, SettingsData, Track } from "../types";
@@ -12,6 +15,13 @@ import { filesFromDrop, filesFromInput, type PickedFile } from "../upload";
 export default function Folders() {
   const folders = useQuery({ queryKey: ["collections"], queryFn: () => api.get<Collection[]>("/local/collections") });
   const [importing, setImporting] = useState(false);
+  const stars = useStars();
+  const filters: Filter<Collection>[] = [
+    { key: "starred", label: "Starred", icon: <Star size={15} />, test: (c) => stars.isStarred("folder", c.id) },
+    { key: "transcribed", label: "Has transcripts", icon: <FileText size={15} />, test: (c) => c.transcribed_count > 0 },
+    { key: "mp3", label: "MP3 ready", icon: <CheckCircle2 size={15} />, test: (c) => c.mp3_count > 0 },
+  ];
+  const { shown, chips, filtering } = useFilters(filters, folders.data ?? []);
   return (
     <>
       <PageHead
@@ -27,9 +37,16 @@ export default function Folders() {
       {folders.isLoading ? (
         <Spinner />
       ) : folders.data?.length ? (
+        <>
+          <div className="toolbar">{chips}</div>
+          {!shown.length && filtering && (
+            <Empty icon={<Search size={34} />} title="No folders match">
+              Turn a filter off to see more.
+            </Empty>
+          )}
         <div className="list">
-          {folders.data.map((c) => (
-            <Link key={c.id} to={`/folders/${c.id}`} className="list-row" style={{ gridTemplateColumns: "48px 1fr auto" }}>
+          {shown.map((c) => (
+            <Link key={c.id} to={`/folders/${c.id}`} className="list-row" style={{ gridTemplateColumns: "48px minmax(0, 1fr) auto auto" }}>
               <div className="play-dot" style={{ width: 44, height: 44, borderRadius: 10, color: "var(--sage-strong)", background: "var(--sage-soft)", borderColor: "transparent" }}>
                 <Folder size={20} />
               </div>
@@ -42,10 +59,12 @@ export default function Folders() {
                   <span>added {date(c.created_at)}</span>
                 </div>
               </div>
+              <StarButton kind="folder" id={c.id} title={c.name} overlay />
               <span className="muted">→</span>
             </Link>
           ))}
         </div>
+        </>
       ) : (
         <Empty icon={<FolderInput size={40} />} title="No folders yet" action={<Button variant="primary" onClick={() => setImporting(true)}>Import a folder</Button>}>
           Upload a folder from this computer. Files keep their order by name (“2 - …” comes before “10 - …”).

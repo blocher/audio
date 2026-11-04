@@ -14,7 +14,7 @@ from ninja.errors import HttpError
 
 from . import audio, packing
 from .jobs import enqueue
-from .models import Job, Track
+from .models import Job, Star, Track
 from .secrets import load_credential, mask, save_credential
 
 router = Router(tags=["core"])
@@ -444,3 +444,38 @@ def media(request, path: str):
     response["Content-Length"] = str(length)
     response["Accept-Ranges"] = "bytes"
     return response
+
+
+# ---------- stars (per user) ----------
+
+
+class StarOut(Schema):
+    kind: Star.Kind
+    id: int = Field(alias="target_id")
+    starred_at: datetime = Field(alias="created_at")
+
+
+def _star_target(kind: Star.Kind, pk: int):
+    from audible_books.models import Book
+    from local_audio.models import Collection
+    from podcasts.models import Podcast
+
+    model = {Star.Kind.BOOK: Book, Star.Kind.PODCAST: Podcast, Star.Kind.FOLDER: Collection}[kind]
+    return get_object_or_404(model, pk=pk)
+
+
+@router.get("/stars", response=list[StarOut])
+def list_stars(request):
+    return Star.objects.filter(user=request.user)
+
+
+@router.put("/stars/{kind}/{pk}", response=StarOut)
+def add_star(request, kind: Star.Kind, pk: int):
+    star, _ = Star.objects.get_or_create(user=request.user, kind=kind, **{kind.value: _star_target(kind, pk)})
+    return star
+
+
+@router.delete("/stars/{kind}/{pk}")
+def remove_star(request, kind: Star.Kind, pk: int):
+    Star.objects.filter(user=request.user, kind=kind, **{f"{kind.value}_id": pk}).delete()
+    return {"ok": True}

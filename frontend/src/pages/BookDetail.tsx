@@ -7,6 +7,7 @@ import CardPlanner from "../components/CardPlanner";
 import { AskPanel, TranscriptView, useWorkPosition } from "../components/Listen";
 import TrackList, { queueFor } from "../components/TrackList";
 import { BitratePicker, DownsizeDialog, TranscribeDialog, usePresets } from "../components/Tools";
+import { StarButton } from "../components/StarButton";
 import { Button, Cover, Empty, Modal, Note, Progress, Spinner, Tabs, errorText, useToast } from "../components/ui";
 import { bytes, clock, date, duration, relative, stripHtml } from "../format";
 import { useAction, useActiveJob } from "../hooks/queries";
@@ -44,7 +45,7 @@ export default function BookDetail() {
 
   return (
     <>
-      <Link to="/" className="breadcrumb">
+      <Link to="/library" className="breadcrumb">
         <ArrowLeft size={15} /> Library
       </Link>
       <section className="hero">
@@ -125,6 +126,7 @@ export default function BookDetail() {
                 </Button>
               </>
             )}
+            <StarButton kind="book" id={b.id} title={b.title} />
           </div>
 
           {job && <JobLine job={job} />}

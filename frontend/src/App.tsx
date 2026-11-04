@@ -8,6 +8,7 @@ import Activity from "./pages/Activity";
 import BookDetail from "./pages/BookDetail";
 import FolderDetail from "./pages/FolderDetail";
 import Folders from "./pages/Folders";
+import Home from "./pages/Home";
 import Library from "./pages/Library";
 import Login from "./pages/Login";
 import PlaylistDetail from "./pages/PlaylistDetail";
@@ -42,7 +43,8 @@ export default function App() {
       ) : (
         <Shell user={session.data.user!}>
           <Routes>
-            <Route path="/" element={<Library />} />
+            <Route path="/" element={<Home />} />
+            <Route path="/library" element={<Library />} />
             <Route path="/books/:id" element={<BookDetail />} />
             <Route path="/podcasts" element={<Podcasts />} />
             <Route path="/podcasts/:id" element={<PodcastDetail />} />

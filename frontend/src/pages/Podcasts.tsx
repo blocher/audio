@@ -1,15 +1,25 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Mic, Plus, Rss, Search } from "lucide-react";
+import { Download, FileText, Link2, Mic, Plus, Rss, Search, Star } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { useFilters, type Filter } from "../components/LibraryGrid";
+import { StarButton } from "../components/StarButton";
 import { Button, Cover, Empty, Modal, Note, PageHead, Progress, Spinner, errorText } from "../components/ui";
+import { useStars } from "../hooks/stars";
 import { bytes } from "../format";
 import type { Podcast, SearchResult } from "../types";
 
 export default function Podcasts() {
   const podcasts = useQuery({ queryKey: ["podcasts"], queryFn: () => api.get<Podcast[]>("/podcasts") });
   const [adding, setAdding] = useState(false);
+  const stars = useStars();
+  const filters: Filter<Podcast>[] = [
+    { key: "starred", label: "Starred", icon: <Star size={15} />, test: (p) => stars.isStarred("podcast", p.id) },
+    { key: "transcribed", label: "Has transcripts", icon: <FileText size={15} />, test: (p) => p.transcribed_count > 0 },
+    { key: "saved", label: "Has saved episodes", icon: <Download size={15} />, test: (p) => p.downloaded_count > 0 },
+  ];
+  const { shown, chips, filtering } = useFilters(filters, podcasts.data ?? []);
   return (
     <>
       <PageHead
@@ -25,10 +35,20 @@ export default function Podcasts() {
       {podcasts.isLoading ? (
         <Spinner />
       ) : podcasts.data?.length ? (
+        <>
+          <div className="toolbar">{chips}</div>
+          {!shown.length && filtering && (
+            <Empty icon={<Search size={34} />} title="No podcasts match">
+              Turn a filter off to see more.
+            </Empty>
+          )}
         <div className="cover-grid">
-          {podcasts.data.map((p) => (
+          {shown.map((p) => (
             <Link key={p.id} to={`/podcasts/${p.id}`} className="cover-card">
-              <Cover src={p.image_url} title={p.title} />
+              <div style={{ position: "relative" }}>
+                <Cover src={p.image_url} title={p.title} />
+                <StarButton kind="podcast" id={p.id} title={p.title} overlay />
+              </div>
               <div className="cover-title">{p.title}</div>
               <div className="cover-meta">
                 <span className="truncate">{p.author}</span>
@@ -41,6 +61,7 @@ export default function Podcasts() {
             </Link>
           ))}
         </div>
+        </>
       ) : (
         <Empty icon={<Mic size={40} />} title="No podcasts yet" action={<Button variant="primary" onClick={() => setAdding(true)}>Add your first podcast</Button>}>
           Follow a show by Apple Podcasts link, RSS URL, or search.

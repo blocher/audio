@@ -6,6 +6,7 @@ import { api } from "../api";
 import CardPlanner from "../components/CardPlanner";
 import { AskPanel, TranscriptView, useWorkPosition } from "../components/Listen";
 import TrackList, { queueFor } from "../components/TrackList";
+import { StarButton } from "../components/StarButton";
 import { DownsizeDialog, TranscribeDialog } from "../components/Tools";
 import { Button, Empty, Note, PageHead, Spinner, Tabs, errorText } from "../components/ui";
 import { bytes, duration } from "../format";
@@ -60,6 +61,7 @@ export default function FolderDetail() {
             <Button icon={<Minimize2 size={16} />} disabled={!c.tracks.length} onClick={() => setDialog("downsize")}>Downsize</Button>
             <Button icon={<FileText size={16} />} disabled={!c.tracks.length} onClick={() => setDialog("transcribe")}>Transcribe</Button>
             <Button icon={<Plus size={16} />} onClick={() => setDialog("add")}>Add files</Button>
+            <StarButton kind="folder" id={c.id} title={c.name} />
           </>
         }
       />
