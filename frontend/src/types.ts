@@ -278,5 +278,5 @@ export interface SettingsData {
     card_limit_hours: number;
     pack_strategy: "sequential" | "compact";
   };
-  capabilities: { local_import_roots: string[]; ffmpeg: boolean; yoto_redirect_uri: string };
+  capabilities: { local_import_roots: string[]; ffmpeg: boolean; yoto_redirect_uri: string; yoto_scopes: string[] };
 }

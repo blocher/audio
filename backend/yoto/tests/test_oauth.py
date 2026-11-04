@@ -21,3 +21,18 @@ def test_authorize_url_uses_pkce(settings):
     assert query["code_challenge"] == [expected]
     assert query["code_challenge_method"] == ["S256"]
     assert query["state"] == [account.pending_login["state"]]
+
+
+@pytest.mark.django_db
+def test_unapproved_scope_error_explains_the_dashboard_fix(client, django_user_model):
+    client.force_login(django_user_model.objects.create_user("ben"))
+    response = client.get(
+        "/api/yoto/callback",
+        {
+            "error": "access_denied",
+            "error_description": "...scopes that have not been pre-approved: offline_access...",
+        },
+    )
+    assert response.status_code == 302
+    location = response["Location"]
+    assert location.startswith("/yoto?error=") and "dashboard.yoto.dev" in location and "offline_access" in location

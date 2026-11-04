@@ -46,12 +46,13 @@ export default function Yoto() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<SettingsData>("/settings") });
   const jobs = useJobs();
   const [picking, setPicking] = useState(false);
+  const [connectError, setConnectError] = useState(params.get("error") ?? "");
   const [planGroups, setPlanGroups] = useState<PackGroup[] | null>(null);
   const sync = useAction((body: { batch?: string; playlist_ids?: number[] }) => api.post<Job>("/yoto/sync", body), [["playlists"]]);
 
   useEffect(() => {
     if (params.get("connected")) toast("Yoto account connected");
-    if (params.get("error")) toast(`Yoto: ${params.get("error")}`, "error");
+    if (params.get("error")) setConnectError(params.get("error")!);
     if (params.get("connected") || params.get("error")) {
       const next = new URLSearchParams(params);
       next.delete("connected");
@@ -87,6 +88,12 @@ export default function Yoto() {
           </Button>
         }
       />
+
+      {connectError && !connected && (
+        <div style={{ marginBottom: 16 }}>
+          <Note tone="error">Yoto sign-in didn't finish: {connectError}</Note>
+        </div>
+      )}
 
       {!accounts.isLoading && !connected && (
         <div className="panel" style={{ marginBottom: 22, display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>

@@ -1,4 +1,5 @@
 from datetime import datetime
+from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.db import transaction
@@ -60,18 +61,28 @@ def reconnect(request, account_id: int):
         raise HttpError(400, str(exc)) from exc
 
 
+def _back_to_yoto(**params) -> HttpResponseRedirect:
+    return HttpResponseRedirect(f"/yoto?{urlencode(params)}")
+
+
 @router.get("/callback")
 def oauth_callback(request, code: str = "", state: str = "", error: str = "", error_description: str = ""):
     if error:
-        return HttpResponseRedirect(f"/yoto?error={error_description or error}")
+        if "pre-approved" in error_description:
+            scopes = ", ".join(client.SCOPES.split())
+            return _back_to_yoto(
+                error=f"Your Yoto app isn't allowed all the scopes it needs. At dashboard.yoto.dev, open the app, "
+                f"tick {scopes}, save, then connect again."
+            )
+        return _back_to_yoto(error=error_description or error)
     account = next((a for a in YotoAccount.objects.all() if (a.pending_login or {}).get("state") == state), None)
     if account is None:
-        return HttpResponseRedirect("/yoto?error=Sign-in expired; try again")
+        return _back_to_yoto(error="Sign-in expired; try again")
     try:
         client.finish_authorize(account, code, state)
     except client.YotoError as exc:
-        return HttpResponseRedirect(f"/yoto?error={exc}")
-    return HttpResponseRedirect("/yoto?connected=1")
+        return _back_to_yoto(error=str(exc))
+    return _back_to_yoto(connected=1)
 
 
 @router.delete("/accounts/{account_id}")

@@ -159,6 +159,12 @@ def preferences() -> dict:
     return {k: setting("preferences", k) for k in PLAIN_FIELDS["preferences"]}
 
 
+def yoto_scopes() -> list[str]:
+    from yoto.client import SCOPES
+
+    return SCOPES.split()
+
+
 @router.get("/settings")
 def get_settings(request):
     out = {}
@@ -174,6 +180,7 @@ def get_settings(request):
         "local_import_roots": [str(p) for p in settings.LOCAL_IMPORT_ROOTS],
         "ffmpeg": shutil.which(settings.FFMPEG_BINARY) is not None,
         "yoto_redirect_uri": f"{settings.PUBLIC_BASE_URL}/api/yoto/callback",
+        "yoto_scopes": yoto_scopes(),
     }
     return out
 

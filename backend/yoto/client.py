@@ -21,7 +21,9 @@ from .models import YotoAccount
 AUTH_BASE = "https://login.yotoplay.com"
 API_BASE = "https://api.yotoplay.com"
 AUDIENCE = "https://api.yotoplay.com"
-SCOPES = "offline_access user:content:manage profile"
+# Each scope must also be ticked on the app at dashboard.yoto.dev, or Yoto answers "not been pre-approved".
+# offline_access is what yields a refresh token; without it every sync would need a fresh sign-in.
+SCOPES = "offline_access user:content:manage"
 # “Music notes” from Yoto's public icon library; used when a chapter has no icon of its own.
 DEFAULT_ICON = "yoto:#_WWpLHoOj6iqeREcGkJnGlsis2QSF6znM0UPFdXTjf8"
 

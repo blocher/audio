@@ -259,6 +259,13 @@ function YotoSection({ data }: { data: SettingsData }) {
               </span>
             </li>
             <li>
+              <span>
+                Tick these scopes on the app: {data.capabilities.yoto_scopes.map((sc, i) => (
+                  <span key={sc}>{i > 0 && ", "}<code>{sc}</code></span>
+                ))}
+              </span>
+            </li>
+            <li>
               <span>Paste the client ID and secret here, then connect your account.</span>
             </li>
           </ol>
