@@ -40,9 +40,10 @@ The server already runs Postgres. Celery workers write job progress at the same 
 - The packer enforces all of these limits and cuts tracks over 60 minutes into parts.
 - You can turn the duration check off in Settings if it turns out not to be enforced.
 
-**Packing.** There are two strategies:
-- **Keep in order** fills each card before starting the next. For ordered content this is provably the fewest cards possible without reordering.
-- **Fewest cards** splits each source into full cards and then bin-packs the leftovers (first-fit decreasing), so short shows can share a card.
+**Packing.** Pick one or more sources (a whole Audible series is one click), put them in play order, and choose a strategy:
+- **Back to back** (the default for several sources) plays everything in order, filling each card before starting the next, so when one book ends partway through a card the next begins on the same card. Greedy filling is provably the fewest cards possible without reordering. On a card shared by two books, each track is prefixed with its book ("Book 2 – Chapter 1"). Naming the set titles the cards "Name (3 of 24)".
+- **New card per source** also keeps order, but starts every book or show on a fresh card.
+- **Keep shows whole** splits each source into full cards and then bin-packs the leftovers (first-fit decreasing), so short shows can share a card.
 
 **Spoilers.** "Ask" sends Claude only the transcript before your position. That position is either the player's position or a slider. Claude is also told not to use what it might know about the book from elsewhere. Answers cite `[h:mm:ss]` timestamps, and clicking one plays from that moment.
 

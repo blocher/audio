@@ -234,6 +234,7 @@ def create_playlist(request, payload: PlaylistIn):
 class FromPackIn(PackIn):
     account_id: int | None = None
     cover_url: str = ""
+    name: str = ""  # titles the cards "Name (n of N)"; blank names each card after what's on it
     downsize_first: bool = False
     mono: bool = True
 
@@ -245,7 +246,7 @@ def create_from_pack(request, payload: FromPackIn):
     if not cards:
         raise HttpError(400, "Nothing to put on a card")
     account = YotoAccount.objects.filter(pk=payload.account_id).first() if payload.account_id else None
-    playlists = services.create_from_cards(cards, account, payload.cover_url)
+    playlists = services.create_from_cards(cards, account, payload.cover_url, payload.name)
     job = None
     if payload.downsize_first and payload.kbps:
         from core.models import Track

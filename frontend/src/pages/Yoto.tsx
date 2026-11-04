@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, CheckCircle2, CloudUpload, Folder, Link2, Mic, Plus, SquareStack } from "lucide-react";
+import { BookOpen, CheckCircle2, CloudUpload, Folder, Library, Link2, Mic, Plus, Search, SquareStack } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
@@ -193,44 +193,77 @@ export default function Yoto() {
   );
 }
 
+const natural = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+const seriesNumber = (b: Book) => parseFloat(b.series_position.match(/\d+(\.\d+)?/)?.[0] ?? "") || Infinity;
+
+type BookBlock = { name: string; series: string; books: Book[] };
+
+/** Books grouped into series (two or more ready books) and standalones, all in reading order. */
+function bookBlocks(books: Book[]): BookBlock[] {
+  const bySeries = new Map<string, Book[]>();
+  for (const b of books) if (b.series) bySeries.set(b.series, [...(bySeries.get(b.series) ?? []), b]);
+  const blocks: BookBlock[] = [];
+  for (const [series, list] of bySeries) {
+    if (list.length > 1) blocks.push({ name: series, series, books: list.sort((a, b) => seriesNumber(a) - seriesNumber(b) || natural(a.title, b.title)) });
+  }
+  for (const b of books) if (!b.series || (bySeries.get(b.series)?.length ?? 0) < 2) blocks.push({ name: b.title, series: "", books: [b] });
+  return blocks.sort((a, b) => natural(a.name, b.name));
+}
+
 function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (groups: PackGroup[]) => void }) {
   const books = useQuery({ queryKey: ["books"], queryFn: () => api.get<Book[]>("/audible/books") });
   const podcasts = useQuery({ queryKey: ["podcasts"], queryFn: () => api.get<Podcast[]>("/podcasts") });
   const folders = useQuery({ queryKey: ["collections"], queryFn: () => api.get<Collection[]>("/local/collections") });
   const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [term, setTerm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const toggle = (key: string) =>
+  const setMany = (keys: string[], on: boolean) =>
     setChosen((s) => {
       const next = new Set(s);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      for (const k of keys) {
+        if (on) next.add(k);
+        else next.delete(k);
+      }
       return next;
     });
 
+  const q = term.trim().toLowerCase();
+  const matches = (...fields: string[]) => !q || fields.some((f) => f.toLowerCase().includes(q));
   const readyBooks = (books.data ?? []).filter((b) => b.track_count > 0);
-  const readyPodcasts = (podcasts.data ?? []).filter((p) => p.downloaded_count > 0);
-  const readyFolders = (folders.data ?? []).filter((c) => c.track_count > 0);
+  const blocks = bookBlocks(readyBooks.filter((b) => matches(b.title, b.authors, b.series)));
+  const readyPodcasts = (podcasts.data ?? []).filter((p) => p.downloaded_count > 0 && matches(p.title, p.author)).sort((a, b) => natural(a.title, b.title));
+  const readyFolders = (folders.data ?? []).filter((c) => c.track_count > 0 && matches(c.name)).sort((a, b) => natural(a.name, b.name));
+  const nothingReady = !readyBooks.length && !(podcasts.data ?? []).some((p) => p.downloaded_count > 0) && !(folders.data ?? []).some((c) => c.track_count > 0);
 
   async function build() {
     setBusy(true);
     setError("");
     try {
-      const groups: PackGroup[] = [];
-      for (const key of chosen) {
-        const [kind, id] = key.split(":");
-        if (kind === "book") {
-          const tracks = await api.get<Track[]>(`/tracks?book_id=${id}`);
-          groups.push({ key, title: readyBooks.find((b) => String(b.id) === id)!.title, track_ids: tracks.map((t) => t.id) });
-        } else if (kind === "podcast") {
-          const detail = await api.get<PodcastDetail>(`/podcasts/${id}`);
-          const eps = detail.episodes.filter((e) => e.track).sort((a, b) => (a.published_at ?? "").localeCompare(b.published_at ?? ""));
-          groups.push({ key, title: detail.title, track_ids: eps.map((e) => e.track!.id) });
-        } else {
+      // Sources go to the planner in the order shown here (series in reading order); it can reorder them.
+      const all = bookBlocks(readyBooks);
+      const keys = [
+        ...all.flatMap((bl) => bl.books.map((b) => `book:${b.id}`)),
+        ...(podcasts.data ?? []).filter((p) => p.downloaded_count > 0).sort((a, b) => natural(a.title, b.title)).map((p) => `podcast:${p.id}`),
+        ...(folders.data ?? []).filter((c) => c.track_count > 0).sort((a, b) => natural(a.name, b.name)).map((c) => `folder:${c.id}`),
+      ].filter((k) => chosen.has(k));
+      const groups = await Promise.all(
+        keys.map(async (key): Promise<PackGroup> => {
+          const [kind, id] = key.split(":");
+          if (kind === "book") {
+            const book = readyBooks.find((b) => String(b.id) === id)!;
+            const tracks = await api.get<Track[]>(`/tracks?book_id=${id}`);
+            return { key, title: book.title, series: book.series || undefined, track_ids: tracks.map((t) => t.id) };
+          }
+          if (kind === "podcast") {
+            const detail = await api.get<PodcastDetail>(`/podcasts/${id}`);
+            const eps = detail.episodes.filter((e) => e.track).sort((a, b) => (a.published_at ?? "").localeCompare(b.published_at ?? ""));
+            return { key, title: detail.title, track_ids: eps.map((e) => e.track!.id) };
+          }
           const tracks = await api.get<Track[]>(`/tracks?collection_id=${id}`);
-          groups.push({ key, title: readyFolders.find((c) => String(c.id) === id)!.name, track_ids: tracks.map((t) => t.id) });
-        }
-      }
+          return { key, title: folders.data!.find((c) => String(c.id) === id)!.name, track_ids: tracks.map((t) => t.id) };
+        }),
+      );
       onPicked(groups);
     } catch (e) {
       setError(errorText(e));
@@ -240,9 +273,10 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
   }
 
   const loading = books.isLoading || podcasts.isLoading || folders.isLoading;
-  const Row = ({ k, icon, title, sub }: { k: string; icon: React.ReactNode; title: string; sub: string }) => (
-    <label className="list-row" style={{ gridTemplateColumns: "auto auto 1fr", cursor: "pointer" }}>
-      <input type="checkbox" checked={chosen.has(k)} onChange={() => toggle(k)} style={{ accentColor: "var(--terracotta)", width: 16, height: 16 }} />
+  const box = { accentColor: "var(--terracotta)", width: 16, height: 16 };
+  const row = (k: string, icon: React.ReactNode, title: string, sub: string, indent = false) => (
+    <label key={k} className="list-row" style={{ gridTemplateColumns: "auto auto 1fr", cursor: "pointer", paddingLeft: indent ? 40 : undefined }}>
+      <input type="checkbox" checked={chosen.has(k)} onChange={(e) => setMany([k], e.target.checked)} style={box} />
       {icon}
       <div style={{ minWidth: 0 }}>
         <div className="title truncate">{title}</div>
@@ -250,6 +284,8 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
       </div>
     </label>
   );
+  const bookSub = (b: Book, inSeries: boolean) =>
+    [inSeries && b.series_position ? `Book ${b.series_position}` : "", b.authors, `${b.track_count} chapters`, duration(b.runtime_min * 60000)].filter(Boolean).join(" · ");
 
   return (
     <Modal
@@ -267,17 +303,56 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
     >
       {loading ? (
         <Spinner />
+      ) : nothingReady ? (
+        <Empty title="Nothing ready yet">Convert a book, download some episodes, or import a folder first.</Empty>
       ) : (
         <div className="stack" style={{ "--gap": "18px" } as React.CSSProperties}>
-          <p className="muted">Only audio that's already converted or downloaded can go on a card. Pick several to share cards between them.</p>
+          <p className="muted">
+            Only audio that's already converted or downloaded can go on a card. Pick several (a whole series, say) and they'll play back to back
+            on as few cards as possible.
+          </p>
+          <div className="search">
+            <Search size={17} />
+            <input className="input" placeholder="Filter by title, author or series" value={term} onChange={(e) => setTerm(e.target.value)} autoFocus />
+          </div>
           {error && <Note tone="error">{error}</Note>}
-          {readyBooks.length > 0 && (
+          {blocks.length > 0 && (
             <div className="stack">
               <strong>Audiobooks</strong>
               <div className="list">
-                {readyBooks.map((b) => (
-                  <Row key={b.id} k={`book:${b.id}`} icon={<BookOpen size={16} />} title={b.title} sub={`${b.authors} · ${b.track_count} chapters · ${duration(b.runtime_min * 60000)}`} />
-                ))}
+                {blocks.map((bl) => {
+                  if (!bl.series) {
+                    const b = bl.books[0];
+                    return row(`book:${b.id}`, <BookOpen size={16} />, b.title, bookSub(b, false));
+                  }
+                  const keys = bl.books.map((b) => `book:${b.id}`);
+                  const picked = keys.filter((k) => chosen.has(k)).length;
+                  const hours = bl.books.reduce((a, b) => a + b.runtime_min, 0) * 60000;
+                  return (
+                    <div key={`series:${bl.series}`}>
+                      <label className="list-row" style={{ gridTemplateColumns: "auto auto 1fr", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={picked === keys.length}
+                          ref={(el) => {
+                            if (el) el.indeterminate = picked > 0 && picked < keys.length;
+                          }}
+                          onChange={(e) => setMany(keys, e.target.checked)}
+                          style={box}
+                          aria-label={`Whole ${bl.series} series`}
+                        />
+                        <Library size={16} />
+                        <div style={{ minWidth: 0 }}>
+                          <div className="title truncate">{bl.series}</div>
+                          <div className="sub">
+                            Whole series · {bl.books.length} books · {duration(hours)}
+                          </div>
+                        </div>
+                      </label>
+                      {bl.books.map((b) => row(`book:${b.id}`, <BookOpen size={16} />, b.title, bookSub(b, true), true))}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -285,9 +360,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
             <div className="stack">
               <strong>Podcasts</strong>
               <div className="list">
-                {readyPodcasts.map((p) => (
-                  <Row key={p.id} k={`podcast:${p.id}`} icon={<Mic size={16} />} title={p.title} sub={`${p.downloaded_count} saved episodes · ${bytes(p.downloaded_bytes)}`} />
-                ))}
+                {readyPodcasts.map((p) => row(`podcast:${p.id}`, <Mic size={16} />, p.title, `${p.downloaded_count} saved episodes · ${bytes(p.downloaded_bytes)}`))}
               </div>
             </div>
           )}
@@ -295,15 +368,11 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
             <div className="stack">
               <strong>Local folders</strong>
               <div className="list">
-                {readyFolders.map((c) => (
-                  <Row key={c.id} k={`folder:${c.id}`} icon={<Folder size={16} />} title={c.name} sub={`${c.track_count} files · ${duration(c.total_duration_ms)}`} />
-                ))}
+                {readyFolders.map((c) => row(`folder:${c.id}`, <Folder size={16} />, c.name, `${c.track_count} files · ${duration(c.total_duration_ms)}`))}
               </div>
             </div>
           )}
-          {!readyBooks.length && !readyPodcasts.length && !readyFolders.length && (
-            <Empty title="Nothing ready yet">Convert a book, download some episodes, or import a folder first.</Empty>
-          )}
+          {!blocks.length && !readyPodcasts.length && !readyFolders.length && <p className="muted">Nothing matches “{term}”.</p>}
         </div>
       )}
     </Modal>

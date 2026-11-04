@@ -1,15 +1,18 @@
 """Pack tracks onto as few Yoto cards as possible.
 
 A *group* is an ordered run of tracks that belongs together (a book's chapters, a podcast's episodes, a folder).
-Two strategies:
+Three strategies:
 
-* ``sequential`` keeps every group in order and fills each card before starting the next. For ordered content this
-  greedy fill is optimal: no contiguous split uses fewer cards.
+* ``continuous`` plays the groups back to back in the order given: when one book ends partway through a card, the
+  next book starts on the same card. Greedy filling of the whole run is optimal: no order-preserving split uses
+  fewer cards.
+* ``sequential`` keeps every group in order and fills each card before starting the next, but always starts each
+  group on a fresh card.
 * ``compact`` splits each group into full cards plus a remainder, then bin-packs the remainders with first-fit
   decreasing so short groups share cards. Groups are never interleaved; within a card each group stays in order.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 
 @dataclass
@@ -21,6 +24,8 @@ class Item:
     # A slice of the track (for tracks longer than Yoto allows); None means the whole track.
     start_ms: int | None = None
     end_ms: int | None = None
+    # True when ``title`` differs from the track's own title and should be stored on the card.
+    custom_title: bool = False
 
 
 @dataclass
@@ -62,6 +67,7 @@ def split_long(item: Item, limits: Limits) -> list[Item]:
                 end - start,
                 start,
                 end,
+                custom_title=True,
             )
         )
     return out
@@ -139,15 +145,62 @@ def _split(group: Group, limits: Limits) -> list[Segment]:
     return segments
 
 
+def _continuous(groups: list[Group], limits: Limits) -> list[Card]:
+    """Fill each card in turn across group boundaries, so a new group starts where the last one ended."""
+    cards: list[Card] = []
+    current = Card()
+    for group in groups:
+        for item in group.items:
+            if not Card().fits([item], limits):
+                raise TrackTooLarge(f"“{item.title}” is larger than a whole card; downsize it or raise the limit.")
+            if not current.fits([item], limits):
+                cards.append(current)
+                current = Card()
+            if current.segments and current.segments[-1].group is group:
+                current.segments[-1].items.append(item)
+            else:
+                current.segments.append(Segment(group, [item]))
+    if current.segments:
+        cards.append(current)
+    # Number each group's pieces across the cards it spans: "Book 2 (1 of 3)".
+    pieces: dict[str, list[Segment]] = {}
+    for card in cards:
+        for seg in card.segments:
+            pieces.setdefault(seg.group.key, []).append(seg)
+    for segs in pieces.values():
+        for n, seg in enumerate(segs, start=1):
+            seg.part, seg.parts = n, len(segs)
+    return cards
+
+
+def _label_shared(cards: list[Card]) -> None:
+    """On a card holding more than one group, prefix each track with its group so "Chapter 1"s don't collide."""
+    for card in cards:
+        if len(card.segments) < 2:
+            continue
+        for seg in card.segments:
+            seg.items = [
+                item
+                if item.title.startswith(seg.group.title)
+                else replace(item, title=f"{seg.group.title} – {item.title}", custom_title=True)
+                for item in seg.items
+            ]
+
+
 def pack(groups: list[Group], limits: Limits | None = None, strategy: str = "sequential") -> list[Card]:
     limits = limits or Limits()
     groups = [Group(g.key, g.title, [p for i in g.items for p in split_long(i, limits)]) for g in groups if g.items]
-    if strategy == "sequential":
-        cards: list[Card] = []
-        for group in groups:
-            cards.extend(Card([seg]) for seg in _split(group, limits))
-        return cards
+    if strategy == "continuous":
+        cards = _continuous(groups, limits)
+    elif strategy == "sequential":
+        cards = [Card([seg]) for group in groups for seg in _split(group, limits)]
+    else:
+        cards = _compact(groups, limits)
+    _label_shared(cards)
+    return cards
 
+
+def _compact(groups: list[Group], limits: Limits) -> list[Card]:
     full: list[Card] = []
     leftovers: list[Segment] = []
     for group in groups:

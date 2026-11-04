@@ -3,6 +3,7 @@ import { ExternalLink, FolderInput, KeyRound, Link2, Mic, Plus, RefreshCw, Slide
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
+import { PACK_STRATEGIES } from "../components/CardPlanner";
 import ModelPicker, { type ModelChoice } from "../components/ModelPicker";
 import { BitratePicker } from "../components/Tools";
 import { Button, Modal, Note, PageHead, SourceIcon, Spinner, errorText, useToast } from "../components/ui";
@@ -489,9 +490,13 @@ function PreferencesSection({ data }: { data: SettingsData }) {
         <div className="field">
           <span>Default packing</span>
           <div className="segmented" style={{ alignSelf: "flex-start" }}>
-            <button className={strategy === "sequential" ? "active" : ""} onClick={() => setStrategy("sequential")}>Keep in order</button>
-            <button className={strategy === "compact" ? "active" : ""} onClick={() => setStrategy("compact")}>Fewest cards</button>
+            {PACK_STRATEGIES.map((s) => (
+              <button key={s.id} className={strategy === s.id ? "active" : ""} onClick={() => setStrategy(s.id)}>
+                {s.label}
+              </button>
+            ))}
           </div>
+          <small>{PACK_STRATEGIES.find((s) => s.id === strategy)?.hint} With several sources picked, cards default to back to back.</small>
         </div>
         <div className="row">
           <span className="spacer" />

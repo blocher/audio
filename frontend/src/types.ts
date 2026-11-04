@@ -200,10 +200,14 @@ export interface PlaylistDetail extends Playlist {
   active_job: Job | null;
 }
 
+export type PackStrategy = "continuous" | "sequential" | "compact";
+
 export interface PackGroup {
   key: string;
   title: string;
   track_ids: number[];
+  /** Audible series name, used to suggest a name for the set of cards. */
+  series?: string;
 }
 
 export interface PackCard {
@@ -295,7 +299,7 @@ export interface SettingsData {
     default_mono: boolean;
     card_limit_mb: number;
     card_limit_hours: number;
-    pack_strategy: "sequential" | "compact";
+    pack_strategy: PackStrategy;
     stt_provider: string;
     stt_model: string;
     chat_provider: string;

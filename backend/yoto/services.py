@@ -40,7 +40,7 @@ def create_playlist(
                 position=n,
                 start_ms=item.start_ms,
                 end_ms=item.end_ms,
-                title=item.title[:300] if item.start_ms is not None else "",
+                title=item.title[:300] if item.custom_title else "",
             )
         else:
             PlaylistItem.objects.create(playlist=playlist, track_id=int(item), position=n)
@@ -52,9 +52,21 @@ def create_playlist(
     return playlist
 
 
-def create_from_cards(cards: list[packing.Card], account: YotoAccount | None, cover_url: str = "") -> list[Playlist]:
+def create_from_cards(
+    cards: list[packing.Card], account: YotoAccount | None, cover_url: str = "", name: str = ""
+) -> list[Playlist]:
+    """One draft playlist per card. With a ``name`` the cards are titled "Name (3 of 24)" instead of by contents."""
     batch = uuid.uuid4().hex[:12]
-    return [create_playlist(card.title, card.items, account, cover_url, batch) for card in cards]
+    name = name.strip()
+
+    def title(n: int, card: packing.Card) -> str:
+        if not name:
+            return card.title
+        return name if len(cards) == 1 else f"{name} ({n} of {len(cards)})"
+
+    return [
+        create_playlist(title(n, card), card.items, account, cover_url, batch) for n, card in enumerate(cards, start=1)
+    ]
 
 
 def item_file(item: PlaylistItem, use_optimized: bool) -> Path:
