@@ -7,7 +7,7 @@ class YotoAccount(TimeStamped):
     name = models.CharField(max_length=100, default="Family")
     email = models.CharField(max_length=200, blank=True)
     encrypted_tokens = models.TextField(blank=True)
-    # OAuth sign-in in flight: {"state", "created"}.
+    # OAuth sign-in in flight: {"state", "code_verifier", "created"}.
     pending_login = models.JSONField(default=dict, blank=True)
     last_error = models.TextField(blank=True)
 

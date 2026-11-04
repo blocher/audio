@@ -1,8 +1,9 @@
-"""Yoto developer API: OAuth (confidential client), audio upload/transcode, MYO card content.
+"""Yoto developer API: OAuth (authorization code + PKCE), audio upload/transcode, MYO card content.
 
 See docs/research/yoto-api.md for the sources behind each call.
 """
 
+import base64
 import hashlib
 import secrets
 import time
@@ -48,7 +49,10 @@ def redirect_uri() -> str:
 def authorize_url(account: YotoAccount) -> str:
     client_id, _ = app_credentials()
     state = secrets.token_urlsafe(24)
-    account.pending_login = {"state": state, "created": time.time()}
+    # Yoto's login server rejects /authorize without PKCE, even for confidential clients with a secret.
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    account.pending_login = {"state": state, "code_verifier": verifier, "created": time.time()}
     account.save(update_fields=["pending_login", "updated_at"])
     query = {
         "audience": AUDIENCE,
@@ -57,6 +61,8 @@ def authorize_url(account: YotoAccount) -> str:
         "client_id": client_id,
         "redirect_uri": redirect_uri(),
         "state": state,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
     }
     return f"{AUTH_BASE}/authorize?{urlencode(query)}"
 
@@ -79,7 +85,14 @@ def _token_request(data: dict) -> dict:
 def finish_authorize(account: YotoAccount, code: str, state: str) -> None:
     if not state or state != (account.pending_login or {}).get("state"):
         raise YotoError("That sign-in link expired or didn't come from here. Try connecting again.")
-    tokens = _token_request({"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri()})
+    tokens = _token_request(
+        {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri(),
+            "code_verifier": account.pending_login.get("code_verifier", ""),
+        }
+    )
     account.encrypted_tokens = encrypt_json(tokens)
     account.pending_login = {}
     account.last_error = ""

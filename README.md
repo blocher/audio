@@ -23,7 +23,7 @@ A private family audio library at **https://audio.benlocher.com**. It does six t
 | Audible | [`audible`](https://github.com/mkb79/Audible) (mkb79): device registration, library, AAXC licences |
 | Transcription | OpenAI (`whisper-1` by default, for segment timestamps) |
 | Ask about this book | Claude Opus 5.5 through the Anthropic SDK, with prompt caching and server-side refusal fallback |
-| Yoto | Yoto developer API: OAuth confidential client, upload/transcode, `POST /content` |
+| Yoto | Yoto developer API: OAuth authorization code with PKCE (Yoto requires it even with a client secret), upload/transcode, `POST /content` |
 
 Research notes behind the integrations are in [`docs/research/`](docs/research/).
 
