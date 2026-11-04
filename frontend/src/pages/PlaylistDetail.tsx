@@ -8,12 +8,9 @@ import { Button, Meter, Note, Spinner, errorText, useToast } from "../components
 import { bytes, clock, duration, relative } from "../format";
 import { useAction, useActiveJob } from "../hooks/queries";
 import { usePlayer } from "../player";
-import type { Job, PlaylistDetail as PlaylistDetailT, YotoAccount } from "../types";
+import type { Job, PlaylistDetail as PlaylistDetailT, SettingsData, YotoAccount } from "../types";
 import { JobLine } from "./BookDetail";
 import { statusPill } from "./Yoto";
-
-const CARD_BYTES = 500 * 1024 * 1024;
-const CARD_MS = 5 * 3600 * 1000;
 
 export default function PlaylistDetail() {
   const { id } = useParams();
@@ -22,6 +19,7 @@ export default function PlaylistDetail() {
   const player = usePlayer();
   const playlist = useQuery({ queryKey: ["playlist", id], queryFn: () => api.get<PlaylistDetailT>(`/yoto/playlists/${id}`) });
   const accounts = useQuery({ queryKey: ["yoto-accounts"], queryFn: () => api.get<YotoAccount[]>("/yoto/accounts") });
+  const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<SettingsData>("/settings") });
   const job = useActiveJob("playlist", Number(id));
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -48,8 +46,11 @@ export default function PlaylistDetail() {
     save.mutate({ item_ids: next });
   };
   const connected = (accounts.data ?? []).some((a) => a.connected);
-  const fillBytes = p.total_bytes / CARD_BYTES;
-  const fillTime = p.total_duration_ms / CARD_MS;
+  // The card limits come from Settings; a length limit of 0 means length isn't checked.
+  const limitMb = settings.data?.preferences.card_limit_mb || 500;
+  const limitHours = settings.data?.preferences.card_limit_hours ?? 0;
+  const fillBytes = p.total_bytes / (limitMb * 1024 * 1024);
+  const fillTime = limitHours > 0 ? p.total_duration_ms / (limitHours * 3600 * 1000) : 0;
   const dirty = title !== p.title || description !== p.description;
 
   return (
@@ -72,18 +73,19 @@ export default function PlaylistDetail() {
           <div className="grid-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <div>
               <div className="row muted" style={{ fontSize: "var(--text-xs)", marginBottom: 4 }}>
-                Size <span className="spacer" /> {bytes(p.total_bytes)} / 500 MB
+                Size <span className="spacer" /> {bytes(p.total_bytes)} / {limitMb} MB
               </div>
               <Meter value={fillBytes} />
             </div>
             <div>
               <div className="row muted" style={{ fontSize: "var(--text-xs)", marginBottom: 4 }}>
-                Length <span className="spacer" /> {duration(p.total_duration_ms)} / 5 h
+                Length <span className="spacer" /> {duration(p.total_duration_ms)}
+                {limitHours > 0 && ` / ${limitHours} h`}
               </div>
-              <Meter value={fillTime} />
+              {limitHours > 0 && <Meter value={fillTime} />}
             </div>
           </div>
-          {(fillBytes > 1 || fillTime > 1 || p.item_count > 100) && <Note tone="error">This is over a Yoto card's limits; remove some tracks or re-plan with a lower bitrate.</Note>}
+          {(fillBytes > 1 || fillTime > 1 || p.item_count > 100) && <Note tone="error">{fillTime > 1 && fillBytes <= 1 && p.item_count <= 100 ? `This is longer than the ${limitHours}-hour limit in Settings; remove some tracks, or set the limit to 0 if Yoto accepts it.` : "This is over a Yoto card's limits; remove some tracks or re-plan with a lower bitrate."}</Note>}
           {p.last_error && p.status === "failed" && <Note tone="error">{p.last_error}</Note>}
           <div className="row wrap">
             <Button

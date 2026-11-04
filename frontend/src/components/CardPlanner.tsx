@@ -134,13 +134,18 @@ export default function CardPlanner({
   const [kbps, setKbps] = useState<number | null>(null);
   const [mono, setMono] = useState(true);
   const [strategy, setStrategy] = useState<PackStrategy>(groups.length > 1 ? "continuous" : "sequential");
-  const [enforceHours, setEnforceHours] = useState(true);
+  const [enforceHours, setEnforceHours] = useState(false);
+  // The length limit from Settings (0 = off); ticking the box with it off falls back to Yoto's documented 5 hours.
+  const prefHours = settings.data?.preferences.card_limit_hours ?? 0;
+  const limitHours = prefHours > 0 ? prefHours : 5;
+  const limitMb = settings.data?.preferences.card_limit_mb || 500;
 
   useEffect(() => {
     if (!settings.data) return;
     const pref = settings.data.preferences.pack_strategy;
     // With several sources, "new card per source" is never fewer cards than back to back; it's only a preference.
     setStrategy(groups.length > 1 && pref === "sequential" ? "continuous" : pref);
+    setEnforceHours(settings.data.preferences.card_limit_hours > 0);
   }, [settings.data, groups.length]);
 
   const several = order.length > 1;
@@ -150,7 +155,7 @@ export default function CardPlanner({
     kbps,
     mono,
     use_optimized: true,
-    max_hours: enforceHours ? undefined : 0,
+    max_hours: enforceHours ? limitHours : 0,
   };
   const preview = useQuery({
     queryKey: ["pack", JSON.stringify(body)],
@@ -205,8 +210,8 @@ export default function CardPlanner({
     >
       <div className="stack" style={{ "--gap": "20px" } as React.CSSProperties}>
         <p className="muted">
-          {trackCount} track{trackCount === 1 ? "" : "s"} from {several ? `${order.length} sources` : order[0].title}. Each Yoto card holds up to 100 tracks,
-          500 MB and 5 hours; tracks over an hour are split into parts.
+          {trackCount} track{trackCount === 1 ? "" : "s"} from {several ? `${order.length} sources` : order[0].title}. Each Yoto card holds up to 100 tracks
+          and {limitMb} MB; tracks over an hour are split into parts.
         </p>
 
         {several && (
@@ -246,7 +251,7 @@ export default function CardPlanner({
             </div>
             <label className="check" style={{ marginTop: 22 }}>
               <input type="checkbox" checked={enforceHours} onChange={(e) => setEnforceHours(e.target.checked)} />
-              Respect the 5-hour card limit
+              Limit each card to {limitHours} hours
             </label>
           </div>
           {several && <small className="muted">{hint}</small>}

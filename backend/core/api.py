@@ -142,8 +142,9 @@ DEFAULTS = {
         "default_kbps": audio.DEFAULT_KBPS,
         "default_mono": True,
         "card_limit_mb": 500,
-        # Yoto documents 5 hours per card; 0 turns the duration check off for anyone who finds it isn't enforced.
-        "card_limit_hours": 5,
+        # Yoto's docs say 5 hours per card, but it accepts far longer cards (a 24-hour card syncs and plays),
+        # so size is the real limit and the length check is off (0) unless someone turns it on in Settings.
+        "card_limit_hours": 0,
         "pack_strategy": "sequential",
         "stt_provider": "",
         "stt_model": "",

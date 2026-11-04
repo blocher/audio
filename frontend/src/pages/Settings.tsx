@@ -496,7 +496,7 @@ function PreferencesSection({ data }: { data: SettingsData }) {
           <label className="field">
             <span>Card length limit (hours)</span>
             <input className="input" type="number" min={0} max={24} step={0.5} value={hours} onChange={(e) => setHours(Number(e.target.value))} />
-            <small>Yoto documents 5 hours; set 0 to ignore it if you find it isn't enforced.</small>
+            <small>0 means no length limit. Yoto's docs say 5 hours, but in practice only size is enforced.</small>
           </label>
         </div>
         <div className="field">
