@@ -29,6 +29,12 @@ cd ..
 .venv/bin/python backend/manage.py collectstatic --noinput --clear >/dev/null
 
 chown -R audioshelf:audioshelf /var/lib/audio /var/log/audio
+for unit in audio.service audio-celery.service; do
+  if ! cmp -s "deploy/$unit" "/etc/systemd/system/$unit"; then
+    install -m 644 "deploy/$unit" "/etc/systemd/system/$unit"
+    systemctl daemon-reload
+  fi
+done
 systemctl restart audio audio-celery
 sleep 2
 systemctl is-active --quiet audio

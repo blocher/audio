@@ -116,6 +116,9 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 60 * 60 * 6
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_ACKS_LATE = True
+# Redis hands an unacknowledged message out again after this long. Keep it past the time limit, or a job that runs
+# longer than an hour gets started a second time alongside itself. Restarts are handled by core.recovery instead.
+CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": CELERY_TASK_TIME_LIMIT + 60 * 60}
 
 CREDENTIAL_ENCRYPTION_KEY = os.getenv("CREDENTIAL_ENCRYPTION_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

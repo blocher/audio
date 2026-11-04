@@ -13,6 +13,10 @@ EnvironmentFile=/etc/audio/audio.env
 ExecStart=/var/www/audio.benlocher.com/.venv/bin/celery -A config worker --pool threads --concurrency 2 --loglevel=INFO
 Restart=on-failure
 RestartSec=5
+# On stop, only the worker gets SIGTERM; its ffmpeg children keep going so the jobs don't fail mid-shutdown. Jobs
+# that finish within the timeout complete; the rest are killed and resumed when the worker starts (core/recovery.py).
+KillMode=mixed
+TimeoutStopSec=30
 PrivateTmp=true
 ProtectSystem=full
 ReadWritePaths=/var/lib/audio /var/log/audio

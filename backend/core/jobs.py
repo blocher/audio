@@ -9,6 +9,7 @@ import time
 import traceback
 from contextlib import contextmanager
 
+from celery.exceptions import Ignore
 from django.db import models
 from django.utils import timezone
 
@@ -46,8 +47,11 @@ def active_job(target: models.Model, kind: str | None = None) -> Job | None:
 
 
 class JobHandle:
-    def __init__(self, job: Job):
+    def __init__(self, job: Job, resumed_from=None):
         self.job = job
+        # When a restart cut this job off and it is running again, the time it first started; tasks use it to skip
+        # work the earlier run already finished.
+        self.resumed_from = resumed_from
         self._last_write = 0.0
 
     def step(self, progress: float | None = None, message: str | None = None, force: bool = False) -> None:
@@ -68,12 +72,14 @@ class JobHandle:
 @contextmanager
 def running(job_id: int):
     job = Job.objects.get(pk=job_id)
-    if job.status == Job.Status.CANCELLED:
-        return
+    if job.status in (Job.Status.CANCELLED, Job.Status.SUCCEEDED, Job.Status.FAILED):
+        # Cancelled before it started, or a stray redelivery of a job that already finished.
+        raise Ignore()
+    resumed_from = job.started_at
     job.status = Job.Status.RUNNING
-    job.started_at = timezone.now()
+    job.started_at = job.started_at or timezone.now()
     job.save(update_fields=["status", "started_at", "updated_at"])
-    handle = JobHandle(job)
+    handle = JobHandle(job, resumed_from=resumed_from)
     try:
         yield handle
     except JobCancelled:
