@@ -232,7 +232,7 @@
 
 .btn:hover {
   border-color: var(--ink-faint);
-  background: #fffaf3;
+  background: var(--paper-hover);
 }
 
 .btn:active {
@@ -638,7 +638,7 @@ input[type="range"] {
 }
 .pill.honey {
   background: var(--honey-soft);
-  color: #7b5513;
+  color: var(--honey-ink);
 }
 .pill.berry {
   background: var(--berry-soft);
@@ -728,7 +728,7 @@ input[type="range"] {
 }
 
 .list-row:hover {
-  background: #fffaf2;
+  background: var(--paper-hover);
 }
 
 .list-row.playing {
@@ -1117,7 +1117,7 @@ input[type="range"] {
   padding: 14px 16px;
   border-radius: var(--radius);
   background: var(--honey-soft);
-  color: #6b4a12;
+  color: var(--honey-ink);
   font-size: var(--text-sm);
   align-items: flex-start;
 }

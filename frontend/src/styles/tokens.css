@@ -13,6 +13,7 @@
   --paper-sunk: #f3e4cf;
   --paper-edge: #e8d5b8;
   --paper-line: #eadbc4;
+  --paper-hover: #fffaf2;
 
   /* ink */
   --ink: #3a2418;
@@ -37,6 +38,7 @@
   --sage-soft: #e3e7d3;
   --honey: #c58b2a;
   --honey-soft: #f6e5bf;
+  --honey-ink: #6b4a12;
   --berry: #a23b3b;
   --berry-soft: #f5d6d0;
   --sky: #4d6e86;
@@ -79,6 +81,7 @@
     --paper-sunk: #18110d;
     --paper-edge: #3d2c21;
     --paper-line: #33251c;
+    --paper-hover: #33261d;
     --ink: #f3e7d8;
     --ink-soft: #dccab6;
     --ink-muted: #a8927d;
@@ -93,6 +96,7 @@
     --sage-strong: #b2c38f;
     --sage-soft: #2d3322;
     --honey-soft: #46371a;
+    --honey-ink: #ecc77e;
     --berry: #e0827a;
     --berry-soft: #4a2220;
     --sky-soft: #22313b;
