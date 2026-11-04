@@ -8,7 +8,7 @@ hand edits to the script below are overwritten when it's regenerated.
   "name": "Audio",
   "description": "Audible, podcasts and local audio to MP3, transcripts, Ask-the-book and Yoto cards",
   "url": "http://localhost:{port:Frontend}/",
-  "focus": "Working",
+  "focus": "Frontend",
   "requires": [
     "uv",
     "npm",
@@ -22,20 +22,20 @@ hand edits to the script below are overwritten when it's regenerated.
   ],
   "preLaunch": [
     {
-      "run": "test -d .venv || uv venv --python 3.13 .venv; uv pip install -q --python .venv/bin/python -r backend/requirements-dev.txt",
-      "label": "Python dependencies"
+      "label": "Python dependencies",
+      "run": "test -d .venv || uv venv --python 3.13 .venv; uv pip install -q --python .venv/bin/python -r backend/requirements-dev.txt"
     },
     {
-      "run": "test -d frontend/node_modules || npm install --prefix frontend",
-      "label": "Frontend dependencies"
+      "label": "Frontend dependencies",
+      "run": "test -d frontend/node_modules || npm install --prefix frontend"
     },
     {
-      "run": "test -f .env || cp .env.example .env",
-      "label": "Local .env"
+      "label": "Local .env",
+      "run": "test -f .env || cp .env.example .env"
     },
     {
-      "run": "psql -lqt | cut -d'|' -f1 | grep -qw audio || createdb audio",
-      "label": "Postgres database"
+      "label": "Postgres database",
+      "run": "psql -lqt | cut -d'|' -f1 | grep -qw audio || createdb audio"
     }
   ],
   "panes": [
@@ -47,7 +47,7 @@ hand edits to the script below are overwritten when it's regenerated.
     },
     {
       "role": "Backend",
-      "note": "Django + Ninja API with hot reload",
+      "note": "Django + Ninja API with hot reload (settings.py loads the root .env itself)",
       "dir": "backend",
       "port": 8011,
       "command": "python manage.py migrate && python manage.py runserver 127.0.0.1:{port}"
@@ -60,7 +60,7 @@ hand edits to the script below are overwritten when it's regenerated.
       "waitFor": [
         "Backend"
       ],
-      "command": "npm run dev -- --port {port}"
+      "command": "npm run dev -- --port {port} --strictPort"
     },
     {
       "role": "Queue",
@@ -78,6 +78,7 @@ hand edits to the script below are overwritten when it's regenerated.
       ],
       "message": [
         "Create a login: python backend/manage.py createsuperuser",
+        "Tests and lint: pytest -q && ruff check backend && npm run build --prefix frontend",
         "Deploy: git push dailyoffice main"
       ],
       "command": ""
@@ -137,10 +138,8 @@ on run
 	tell application "iTerm"
 		activate
 		-- Rerunning replaces this project's window; other iTerm windows are untouched. Each pane gets Ctrl-C
-		-- first: closing alone leaves servers that ignore hang-ups (redis-server) running. Loop over a snapshot:
-		-- closing a window while looping over the live list shifts it, so the next window would be skipped.
-		set allWindows to windows
-		repeat with existingWindow in allWindows
+		-- first: closing alone leaves servers that ignore hang-ups (redis-server) running.
+		repeat with existingWindow in windows
 			try
 				tell current session of current tab of existingWindow to set existingTag to variable named "user.launcherProject"
 				if existingTag is my projectID then
@@ -171,7 +170,7 @@ on run
 		end tell
 		set lastPane to paneRedis
 
-		-- Backend: Django + Ninja API with hot reload
+		-- Backend: Django + Ninja API with hot reload (settings.py loads the root .env itself)
 		tell lastPane to set paneBackend to (split horizontally with default profile)
 		tell paneBackend
 			set variable named "user.launcherProject" to my projectID
@@ -198,7 +197,7 @@ on run
 			write text "export REDIS_URL=redis://127.0.0.1:$AUDIO_REDIS_PORT" & "/0"
 			write text "pids=$(lsof -t -iTCP:$AUDIO_FRONTEND_PORT -sTCP:LISTEN 2>/dev/null); [ -z \"$pids\" ] || { kill $pids 2>/dev/null; sleep 0.5; pids=$(lsof -t -iTCP:$AUDIO_FRONTEND_PORT -sTCP:LISTEN 2>/dev/null); [ -z \"$pids\" ] || kill -9 $pids 2>/dev/null; }; true"
 			write text "printf 'Waiting for Backend on port %s…\\n' $AUDIO_BACKEND_PORT; until nc -z 127.0.0.1 $AUDIO_BACKEND_PORT 2>/dev/null; do sleep 0.3; done"
-			write text "npm run dev -- --port $AUDIO_FRONTEND_PORT"
+			write text "npm run dev -- --port $AUDIO_FRONTEND_PORT" & " --strictPort"
 		end tell
 		set lastPane to paneFrontend
 
@@ -228,12 +227,12 @@ on run
 			write text "source " & quoted form of projectRoot & "/.venv/bin/activate"
 			write text "export REDIS_URL=redis://127.0.0.1:$AUDIO_REDIS_PORT" & "/0"
 			write text "git status --short --branch"
-			write text "printf '%s\\n' " & quoted form of ("Create a login: python backend/manage.py createsuperuser") & " " & quoted form of ("Deploy: git push dailyoffice main")
+			write text "printf '%s\\n' " & quoted form of ("Create a login: python backend/manage.py createsuperuser") & " " & quoted form of ("Tests and lint: pytest -q && ruff check backend && npm run build --prefix frontend") & " " & quoted form of ("Deploy: git push dailyoffice main")
 		end tell
 		set lastPane to paneWorking
 
-		-- Leave Working selected.
-		select paneWorking
+		-- Leave Frontend selected.
+		select paneFrontend
 	end tell
 
 	-- Open the app in the default browser once its server answers.

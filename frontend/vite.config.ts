@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5182,
     strictPort: true,
     proxy: {
-      "/api": { target: "http://127.0.0.1:8011", changeOrigin: false },
+      "/api": { target: `http://127.0.0.1:${process.env.AUDIO_BACKEND_PORT ?? 8011}`, changeOrigin: false },
     },
   },
 });
