@@ -5,7 +5,9 @@ See docs/research/yoto-api.md for the sources behind each call.
 
 import base64
 import hashlib
+import random
 import secrets
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlencode
@@ -26,10 +28,17 @@ AUDIENCE = "https://api.yotoplay.com"
 SCOPES = "offline_access user:content:manage"
 # “Music notes” from Yoto's public icon library; used when a chapter has no icon of its own.
 DEFAULT_ICON = "yoto:#_WWpLHoOj6iqeREcGkJnGlsis2QSF6znM0UPFdXTjf8"
+# Longest wait between transcode status checks. Each check is a light GET, and a finished track sits idle until the
+# next one, so keep this short.
+POLL_MAX_S = 4
 
 
 class YotoError(Exception):
     pass
+
+
+class Throttled(YotoError):
+    """Yoto kept answering 429 Too Many Requests."""
 
 
 def app_credentials() -> tuple[str, str]:
@@ -145,9 +154,13 @@ def access_token(account: YotoAccount) -> str:
 
 
 class Api:
+    """One Yoto session. Safe to share between threads: a 429 on any thread pauses every thread's requests."""
+
     def __init__(self, account: YotoAccount):
         self.account = account
         self.http = httpx.Client(base_url=API_BASE, timeout=60)
+        self._lock = threading.Lock()
+        self._resume_at = 0.0  # time.monotonic() before which no thread sends a request
 
     def __enter__(self):
         return self
@@ -155,9 +168,18 @@ class Api:
     def __exit__(self, *exc):
         self.http.close()
 
+    def _wait_turn(self) -> None:
+        while (delay := self._resume_at - time.monotonic()) > 0:
+            time.sleep(delay)
+
+    def _pause(self, seconds: float) -> None:
+        with self._lock:
+            self._resume_at = max(self._resume_at, time.monotonic() + seconds)
+
     def request(self, method: str, path: str, **kwargs) -> dict:
         extra_headers = kwargs.pop("headers", None) or {}
         for attempt in range(5):
+            self._wait_turn()
             headers = {"Authorization": f"Bearer {access_token(self.account)}", "Accept": "application/json"}
             headers.update(extra_headers)
             try:
@@ -165,12 +187,17 @@ class Api:
             except httpx.TransportError:
                 if attempt == 4:
                     raise
-                time.sleep(2**attempt)
+                time.sleep(_backoff(attempt))
                 continue
-            if response.status_code == 429 or response.status_code >= 500:
+            if response.status_code == 429:
+                if attempt == 4:
+                    raise Throttled(f"Yoto is limiting requests ({method} {path}); try syncing again shortly.")
+                self._pause(_retry_after(response) or _backoff(attempt))
+                continue
+            if response.status_code >= 500:
                 if attempt == 4:
                     break
-                time.sleep(float(response.headers.get("retry-after") or 2**attempt))
+                time.sleep(_retry_after(response) or _backoff(attempt))
                 continue
             if response.status_code >= 400:
                 raise YotoError(f"Yoto {method} {path} → {response.status_code}: {response.text[:500]}")
@@ -179,9 +206,9 @@ class Api:
 
     # ----- audio -----
 
-    def upload_audio(self, path: Path, on_progress=None, timeout_s: int = 900) -> dict:
+    def upload_audio(self, path: Path, on_progress=None, timeout_s: int = 900, sha: str = "") -> dict:
         """Upload (or reuse) a file and wait for Yoto's transcode. Returns transcodedSha256 and transcodedInfo."""
-        sha = sha256(path)
+        sha = sha or sha256(path)
         upload = self.request(
             "GET", "/media/transcode/audio/uploadUrl", params={"sha256": sha, "filename": path.name}
         )["upload"]
@@ -195,7 +222,12 @@ class Api:
         deadline = time.monotonic() + timeout_s
         delay = 2.0
         while time.monotonic() < deadline:
-            data = self.request("GET", f"/media/upload/{upload['uploadId']}/transcoded", params={"loudnorm": "false"})
+            try:
+                data = self.request(
+                    "GET", f"/media/upload/{upload['uploadId']}/transcoded", params={"loudnorm": "false"}
+                )
+            except Throttled:
+                data = {}  # only a status check: keep waiting until the deadline rather than fail the card
             transcode = data.get("transcode") or {}
             if transcode.get("transcodedSha256"):
                 return {"source_sha256": sha, **transcode}
@@ -203,7 +235,7 @@ class Api:
             if on_progress:
                 on_progress(0.5 + min(percent, 100) / 200)
             time.sleep(delay)
-            delay = min(delay * 1.5, 10)
+            delay = min(delay * 1.5, POLL_MAX_S)
         raise YotoError(f"Yoto is still transcoding {path.name} after {timeout_s // 60} minutes; try syncing again.")
 
     def upload_cover(self, image: bytes, content_type: str) -> str:
@@ -240,6 +272,19 @@ class Api:
 
     def public_icons(self) -> list[dict]:
         return self.request("GET", "/media/displayIcons/user/yoto").get("displayIcons", [])
+
+
+def _backoff(attempt: int) -> float:
+    """Exponential backoff with jitter, so threads throttled together don't all retry together."""
+    return min(2**attempt, 30) * random.uniform(0.5, 1.5)
+
+
+def _retry_after(response: httpx.Response) -> float:
+    """Seconds from a numeric Retry-After header (capped at two minutes); 0 when absent or given as an HTTP date."""
+    try:
+        return min(max(0.0, float(response.headers.get("retry-after") or 0)), 120.0)
+    except ValueError:
+        return 0.0
 
 
 def sha256(path: Path) -> str:

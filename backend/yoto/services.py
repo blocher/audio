@@ -1,8 +1,10 @@
 import mimetypes
+import threading
 import uuid
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from pathlib import Path
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from core import audio, packing
@@ -10,6 +12,10 @@ from core.models import Track
 
 from . import client
 from .models import Playlist, PlaylistItem, Upload, YotoAccount
+
+# How many of a card's tracks upload and transcode at once. Each thread sends one request at a time, so this also caps
+# requests in flight to Yoto. A community uploader (yoto-up) uses 4 without reported trouble.
+UPLOAD_THREADS = 4
 
 
 def default_cover(track: Track) -> str:
@@ -102,28 +108,7 @@ def item_file(item: PlaylistItem, use_optimized: bool) -> Path:
     return dest
 
 
-def upload_item(api: client.Api, item: PlaylistItem, use_optimized: bool, on_progress=None) -> dict:
-    path = item_file(item, use_optimized)
-    sha = client.sha256(path)
-    cached = Upload.objects.filter(sha256=sha).first()
-    if cached:
-        return {
-            "trackUrl": cached.track_url,
-            "duration": cached.duration,
-            "fileSize": cached.file_size,
-            "channels": cached.channels,
-            "format": cached.format,
-        }
-    result = api.upload_audio(path, on_progress=on_progress)
-    info = result.get("transcodedInfo") or {}
-    upload = Upload.objects.create(
-        sha256=sha,
-        track_url=f"yoto:#{result['transcodedSha256']}",
-        duration=float(info.get("duration") or 0),
-        file_size=int(info.get("fileSize") or 0),
-        channels=str(info.get("channels") or ""),
-        format=str(info.get("format") or "aac"),
-    )
+def _track_info(upload: Upload) -> dict:
     return {
         "trackUrl": upload.track_url,
         "duration": upload.duration,
@@ -131,6 +116,74 @@ def upload_item(api: client.Api, item: PlaylistItem, use_optimized: bool, on_pro
         "channels": upload.channels,
         "format": upload.format,
     }
+
+
+def upload_item(api: client.Api, item: PlaylistItem, use_optimized: bool, on_progress=None) -> dict:
+    path = item_file(item, use_optimized)
+    sha = client.sha256(path)
+    cached = Upload.objects.filter(sha256=sha).first()
+    if cached:
+        return _track_info(cached)
+    result = api.upload_audio(path, on_progress=on_progress, sha=sha)
+    info = result.get("transcodedInfo") or {}
+    # get_or_create, because the same file can appear twice on a card and upload on two threads at once.
+    upload, _ = Upload.objects.get_or_create(
+        sha256=sha,
+        defaults={
+            "track_url": f"yoto:#{result['transcodedSha256']}",
+            "duration": float(info.get("duration") or 0),
+            "file_size": int(info.get("fileSize") or 0),
+            "channels": str(info.get("channels") or ""),
+            "format": str(info.get("format") or "aac"),
+        },
+    )
+    return _track_info(upload)
+
+
+class _Stopped(Exception):
+    """Another track failed or the job was cancelled, so this track gives up at its next progress report."""
+
+
+def upload_items(api: client.Api, items: list[PlaylistItem], use_optimized: bool, report) -> list[dict]:
+    """Upload a card's tracks in parallel, returning each one's Yoto track info in item order.
+
+    Yoto transcodes each file on its own servers, so the time goes into waiting. Running tracks side by side overlaps
+    that wait. ``report`` is only called on this thread: job progress writes to the database and can raise
+    JobCancelled, and either one stops the other tracks.
+    """
+    progress = [0.0] * len(items)
+    results: list[dict | None] = [None] * len(items)
+    stop = threading.Event()
+
+    def work(n: int, item: PlaylistItem) -> dict:
+        def on_progress(fraction: float) -> None:
+            if stop.is_set():
+                raise _Stopped()
+            progress[n] = max(progress[n], fraction)
+
+        try:
+            return upload_item(api, item, use_optimized, on_progress=on_progress)
+        finally:
+            connection.close()  # each worker thread has its own database connection
+
+    pool = ThreadPoolExecutor(max_workers=min(UPLOAD_THREADS, len(items)), thread_name_prefix="yoto-upload")
+    futures = {pool.submit(work, n, item): n for n, item in enumerate(items)}
+    pending = set(futures)
+    try:
+        while pending:
+            done, pending = wait(pending, timeout=1, return_when=FIRST_EXCEPTION)
+            for future in done:
+                n = futures[future]
+                results[n] = future.result()
+                progress[n] = 1.0
+            finished = sum(r is not None for r in results)
+            report(sum(progress) / len(items) * 0.95, f"Uploading tracks: {finished} of {len(items)} done")
+    except BaseException:
+        stop.set()
+        raise
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+    return results
 
 
 def _channels(value: str):
@@ -217,18 +270,11 @@ def sync_playlist(playlist: Playlist, on_progress=None) -> Playlist:
                 upload_cover(api, playlist)
             except client.YotoError:
                 pass  # a cover is nice to have; never fail the card over it
-            uploaded = []
-            for n, item in enumerate(items):
-                report(n / len(items) * 0.95, f"Uploading {n + 1}/{len(items)}: {item.title or item.track.title}")
-                info = upload_item(
-                    api,
-                    item,
-                    playlist.use_optimized,
-                    on_progress=lambda f, n=n: report((n + f) / len(items) * 0.95),
-                )
+            infos = upload_items(api, items, playlist.use_optimized, report)
+            for item, info in zip(items, infos, strict=True):
                 item.yoto_track = info
                 item.save(update_fields=["yoto_track"])
-                uploaded.append((item, info))
+            uploaded = list(zip(items, infos, strict=True))
             report(0.97, "Saving card on Yoto")
             card = api.save_content(build_content(playlist, uploaded))
     except Exception as exc:
