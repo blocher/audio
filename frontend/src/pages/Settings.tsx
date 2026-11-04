@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { PACK_STRATEGIES } from "../components/CardPlanner";
+import { PeopleSection } from "../components/People";
 import ModelPicker, { type ModelChoice } from "../components/ModelPicker";
 import { BitratePicker } from "../components/Tools";
 import { Button, Modal, Note, PageHead, SourceIcon, Spinner, errorText, useToast } from "../components/ui";
@@ -24,6 +25,7 @@ export default function Settings() {
       <PageHead eyebrow="Settings" title="Sources & preferences" lede="Accounts, keys, and how audio gets sized for Yoto." />
       <div className="stack" style={{ "--gap": "22px" } as React.CSSProperties}>
         <AudibleSection />
+        <PeopleSection />
         <div className="grid-2" id="sources">
           <section className="panel">
             <div className="panel-head">
@@ -62,7 +64,7 @@ function AudibleSection() {
   const [locale, setLocale] = useState("us");
   const sync = useAction((id: number) => api.post(`/audible/accounts/${id}/sync`), [["audible-accounts"]]);
   const remove = useAction((id: number) => api.del(`/audible/accounts/${id}`), [["audible-accounts"], ["books"]]);
-  const makeMine = useAction((id: number) => api.post(`/audible/accounts/${id}/mine`), [["audible-accounts"], ["books"]]);
+  const makeMine = useAction((id: number) => api.post(`/audible/accounts/${id}/mine`), [["audible-accounts"], ["books"], ["people"]]);
 
   async function create() {
     try {

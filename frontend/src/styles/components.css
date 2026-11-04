@@ -763,6 +763,37 @@ input[type="range"] {
   gap: 6px;
 }
 
+/* People: name, Audible picker, buttons. On a phone the picker gets its own line under the name. */
+.list-row.person-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.person-row .sub span {
+  overflow-wrap: anywhere;
+}
+
+.person-audible {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .list-row.person-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .person-audible {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .person-audible .select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
 .play-dot {
   width: 34px;
   height: 34px;

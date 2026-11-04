@@ -5,6 +5,15 @@ export interface User {
   username: string;
   first_name: string;
   email: string;
+  is_admin: boolean;
+}
+
+/** Someone who can sign in, as Settings → People shows them. */
+export interface Person extends User {
+  /** Their own Audible account; null means the first connected one. */
+  audible_account_id: number | null;
+  last_login: string | null;
+  is_me: boolean;
 }
 
 export interface Session {

@@ -23,6 +23,11 @@ class UserOut(Schema):
     username: str
     first_name: str
     email: str
+    is_admin: bool
+
+    @staticmethod
+    def resolve_is_admin(obj) -> bool:
+        return obj.is_superuser
 
 
 class SessionOut(Schema):
