@@ -10,7 +10,8 @@ from yoto.models import YotoAccount
 
 
 @pytest.mark.django_db
-def test_authorize_url_uses_pkce():
+def test_authorize_url_uses_pkce(settings):
+    settings.CREDENTIAL_ENCRYPTION_KEY = base64.urlsafe_b64encode(b"k" * 32).decode()
     save_credential("yoto", {"client_id": "tpc_test", "client_secret": "s3cret"})
     account = YotoAccount.objects.create()
     query = parse_qs(urlsplit(authorize_url(account)).query)
