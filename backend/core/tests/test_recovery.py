@@ -1,3 +1,4 @@
+import json
 import os
 import time
 from datetime import timedelta
@@ -70,8 +71,11 @@ def test_restart_requeues_orphaned_jobs(db, broker):
     current = Job.objects.create(kind="x", title="x", status="running", started_at=timezone.now(), celery_id="new")
     deliver_and_die(app, "new")  # delivered to the new process: not ours to touch
 
+    app.send_task("demo.task", task_id="waiting")  # queued normally while the old worker was busy
+
     assert requeue_interrupted(app, booted_at) == ["orphan"]
-    assert client.llen("celery") == 1 and client.hlen("unacked") == 1
+    assert client.hlen("unacked") == 1
+    assert [json.loads(m)["headers"]["id"] for m in reversed(client.lrange("celery", 0, -1))] == ["orphan", "waiting"]
 
     orphan.refresh_from_db()
     lost.refresh_from_db()

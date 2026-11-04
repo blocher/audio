@@ -32,7 +32,8 @@ def requeue_interrupted(app, booted_at: float) -> list[str]:
             if raw is None:
                 continue
             task_id = (json.loads(raw)[0].get("headers") or {}).get("id")
-            channel.qos.restore_by_tag(tag, leftmost=True)
+            # kombu publishes with LPUSH and consumes from the right, so the right end is the front of the queue.
+            channel.qos.restore_by_tag(tag, leftmost=False)
             if task_id:
                 restored.append(task_id)
 
