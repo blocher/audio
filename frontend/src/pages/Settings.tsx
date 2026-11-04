@@ -3,6 +3,7 @@ import { ExternalLink, FolderInput, KeyRound, Link2, Mic, Plus, RefreshCw, Slide
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
+import ModelPicker, { type ModelChoice } from "../components/ModelPicker";
 import { BitratePicker } from "../components/Tools";
 import { Button, Modal, Note, PageHead, SourceIcon, Spinner, errorText, useToast } from "../components/ui";
 import { bytes, relative } from "../format";
@@ -318,49 +319,134 @@ function SecretField({ label, set, masked, value, onChange }: { label: string; s
   );
 }
 
+const PROVIDER_USES: Record<string, string> = {
+  anthropic: "Ask",
+  openai: "Transcription & Ask",
+  gemini: "Transcription & Ask",
+  xai: "Ask",
+  groq: "Transcription & Ask · cheapest Whisper",
+};
+
 function KeysSection({ data }: { data: SettingsData }) {
+  const qc = useQueryClient();
   const toast = useToast();
-  const [openai, setOpenai] = useState("");
-  const [anthropic, setAnthropic] = useState("");
-  const [sttModel, setSttModel] = useState(data.openai.transcription_model);
-  const [claudeModel, setClaudeModel] = useState(data.anthropic.model);
-  const save = useAction(async () => {
-    await api.put("/settings", { service: "openai", values: { api_key: openai, transcription_model: sttModel } });
-    await api.put("/settings", { service: "anthropic", values: { api_key: anthropic, model: claudeModel } });
-  }, [["settings"]]);
+  const [keys, setKeys] = useState<Record<string, string>>({});
+  const [stt, setStt] = useState<ModelChoice | null>(
+    data.preferences.stt_provider ? { provider: data.preferences.stt_provider, model: data.preferences.stt_model } : null,
+  );
+  const [chat, setChat] = useState<ModelChoice | null>(
+    data.preferences.chat_provider ? { provider: data.preferences.chat_provider, model: data.preferences.chat_model } : null,
+  );
+  const [groqBudget, setGroqBudget] = useState(data.preferences.groq_context_tokens);
+  const anyKey = data.providers.some((p) => data[p.id].api_key.set);
+
+  const saveKeys = useAction(async () => {
+    for (const [service, key] of Object.entries(keys)) if (key.trim()) await api.put("/settings", { service, values: { api_key: key.trim() } });
+  }, [["settings"], ["ai-models"]]);
+  const saveDefaults = useAction(
+    () =>
+      api.put("/settings", {
+        service: "preferences",
+        values: {
+          stt_provider: stt?.provider ?? "",
+          stt_model: stt?.model ?? "",
+          chat_provider: chat?.provider ?? "",
+          chat_model: chat?.model ?? "",
+          groq_context_tokens: groqBudget,
+        },
+      }),
+    [["settings"], ["ai-models"]],
+  );
+  const refresh = useAction(() => api.get("/ai/models?kind=chat&refresh=true"), [["ai-models"]]);
+  const removeKey = useAction((service: string) => api.put("/settings", { service, values: { api_key: null } }), [["settings"], ["ai-models"]]);
+
   return (
-    <section className="panel" id="keys">
+    <section className="panel" id="ai">
       <div className="panel-head">
         <KeyRound size={18} />
-        <h3>Transcription & Ask</h3>
+        <h3>AI providers</h3>
+        {anyKey && (
+          <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} loading={refresh.isPending} onClick={() => refresh.mutate(undefined, { onSuccess: () => toast("Model lists refreshed") })}>
+            Refresh model lists
+          </Button>
+        )}
       </div>
+      <p className="muted" style={{ marginBottom: 14 }}>
+        Add a key for any provider you use; its current models then appear in the transcription and Ask pickers. Keys are stored encrypted.
+      </p>
       <div className="grid-2">
-        <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
-          <SecretField label="OpenAI API key" set={data.openai.api_key.set} masked={data.openai.api_key.masked} value={openai} onChange={setOpenai} />
-          <label className="field">
-            <span>Transcription model</span>
-            <select className="select" value={sttModel} onChange={(e) => setSttModel(e.target.value)}>
-              <option value="whisper-1">whisper-1 — timestamps every few seconds (recommended)</option>
-              <option value="gpt-4o-transcribe">gpt-4o-transcribe — accurate, timestamps per 10 min</option>
-              <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe — cheapest, timestamps per 10 min</option>
-            </select>
-          </label>
-        </div>
-        <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
-          <SecretField label="Anthropic API key" set={data.anthropic.api_key.set} masked={data.anthropic.api_key.masked} value={anthropic} onChange={setAnthropic} />
-          <label className="field">
-            <span>Claude model for “Ask”</span>
-            <input className="input" value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)} />
-            <small>Default claude-opus-5-5 (1M-token context holds a whole book's transcript).</small>
-          </label>
-        </div>
+        {data.providers.map((p) => {
+          const saved = data[p.id].api_key;
+          return (
+            <div key={p.id} className="stack" style={{ "--gap": "6px" } as React.CSSProperties}>
+              <SecretField label={`${p.label} key`} set={saved.set} masked={saved.masked} value={keys[p.id] ?? ""} onChange={(v) => setKeys((k) => ({ ...k, [p.id]: v }))} />
+              <div className="row" style={{ fontSize: "var(--text-xs)" }}>
+                <span className="muted">{PROVIDER_USES[p.id]}</span>
+                <span className="spacer" />
+                <a href={p.key_url} target="_blank" rel="noreferrer" style={{ color: "var(--terracotta)" }}>
+                  Get a key
+                </a>
+                {saved.set && (
+                  <button className="btn ghost sm" style={{ height: 22, padding: "0 6px" }} onClick={() => confirm(`Remove the ${p.label} key?`) && removeKey.mutate(p.id)}>
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
       <div className="row" style={{ marginTop: 16 }}>
         <span className="spacer" />
-        <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => (setOpenai(""), setAnthropic(""), toast("Saved")) })}>
+        <Button
+          variant="primary"
+          disabled={!Object.values(keys).some((k) => k.trim())}
+          loading={saveKeys.isPending}
+          onClick={() =>
+            saveKeys.mutate(undefined, {
+              onSuccess: () => {
+                setKeys({});
+                qc.invalidateQueries({ queryKey: ["ai-models"] });
+                toast("Keys saved");
+              },
+              onError: (e) => toast(errorText(e), "error"),
+            })
+          }
+        >
           Save keys
         </Button>
       </div>
+
+      {anyKey && (
+        <>
+          <div className="divider" />
+          <div className="grid-2">
+            <label className="field">
+              <span>Default transcription model</span>
+              <ModelPicker kind="stt" value={stt} onChange={setStt} />
+              <small>You can still pick another each time you transcribe.</small>
+            </label>
+            <label className="field">
+              <span>Default model for “Ask”</span>
+              <ModelPicker kind="chat" value={chat} onChange={setChat} />
+              <small>The chat also has its own picker; it remembers your last choice.</small>
+            </label>
+            {data.groq.api_key.set && (
+              <label className="field">
+                <span>Groq transcript budget (tokens per question)</span>
+                <input className="input" type="number" min={4000} max={500000} step={1000} value={groqBudget} onChange={(e) => setGroqBudget(Number(e.target.value))} />
+                <small>Groq plans cap tokens per minute well below model context; raise this if your plan allows. Longer books are excerpted to fit.</small>
+              </label>
+            )}
+          </div>
+          <div className="row" style={{ marginTop: 14 }}>
+            <span className="spacer" />
+            <Button loading={saveDefaults.isPending} onClick={() => saveDefaults.mutate(undefined, { onSuccess: () => toast("Defaults saved") })}>
+              Save defaults
+            </Button>
+          </div>
+        </>
+      )}
     </section>
   );
 }

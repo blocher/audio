@@ -16,3 +16,4 @@ mutagen>=1.48,<2
 anthropic>=2.4,<3
 openai>=3.42,<4
 Pillow>=13,<14
+google-genai>=2.34,<3

@@ -253,6 +253,7 @@ export interface ChatMessage {
   content: string;
   position_ms: number;
   citations: number[];
+  provider?: string;
   model: string;
   created_at: string;
 }
@@ -267,16 +268,56 @@ export interface Conversation {
   messages?: ChatMessage[];
 }
 
+export interface SecretValue {
+  set: boolean;
+  masked: string;
+}
+
+export type ProviderId = "anthropic" | "openai" | "gemini" | "xai" | "groq";
+
+export interface ProviderInfo {
+  id: ProviderId;
+  label: string;
+  stt: boolean;
+  chat: boolean;
+  key_url: string;
+}
+
 export interface SettingsData {
-  openai: { api_key: { set: boolean; masked: string }; transcription_model: string };
-  anthropic: { api_key: { set: boolean; masked: string }; model: string };
-  yoto: { client_id: string; client_secret: { set: boolean; masked: string } };
+  openai: { api_key: SecretValue };
+  anthropic: { api_key: SecretValue };
+  gemini: { api_key: SecretValue };
+  xai: { api_key: SecretValue };
+  groq: { api_key: SecretValue };
+  yoto: { client_id: string; client_secret: SecretValue };
   preferences: {
     default_kbps: number;
     default_mono: boolean;
     card_limit_mb: number;
     card_limit_hours: number;
     pack_strategy: "sequential" | "compact";
+    stt_provider: string;
+    stt_model: string;
+    chat_provider: string;
+    chat_model: string;
+    groq_context_tokens: number;
   };
+  providers: ProviderInfo[];
   capabilities: { local_import_roots: string[]; ffmpeg: boolean; yoto_redirect_uri: string; yoto_scopes: string[] };
+}
+
+export interface AiModel {
+  id: string;
+  label: string;
+  context: number;
+  note: string;
+  preview: boolean;
+  recommended: boolean;
+  price_per_hour?: number;
+  timestamps?: "segments";
+}
+
+export interface AiCatalog {
+  providers: { provider: ProviderId; label: string; models: AiModel[]; error: string }[];
+  default: { provider: string; model: string };
 }

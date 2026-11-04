@@ -21,8 +21,8 @@ A private family audio library at **https://audio.benlocher.com**. It does six t
 | Frontend | React 19 + TypeScript + Vite, TanStack Query, lucide icons |
 | Audio | ffmpeg / ffprobe |
 | Audible | [`audible`](https://github.com/mkb79/Audible) (mkb79): device registration, library, AAXC licences |
-| Transcription | OpenAI (`whisper-1` by default, for segment timestamps) |
-| Ask about this book | Claude Opus 5.5 through the Anthropic SDK, with prompt caching and server-side refusal fallback |
+| Transcription | Groq Whisper (cheapest), OpenAI or Gemini; you pick the model each time ([`core/ai.py`](backend/core/ai.py)) |
+| Ask about this book | Claude, OpenAI, Gemini, Grok or Groq; you pick the model in the chat. Claude gets prompt caching and server-side refusal fallback |
 | Yoto | Yoto developer API: OAuth authorization code with PKCE (Yoto requires it even with a client secret), upload/transcode, `POST /content` |
 
 Research notes behind the integrations are in [`docs/research/`](docs/research/).
@@ -99,11 +99,17 @@ When the server can see your disk (local dev), folder import can also copy strai
 | What | Where it comes from |
 |---|---|
 | Audible | **Add account** for each person, then **Sign in** |
-| OpenAI API key | platform.openai.com; used only for transcription |
-| Anthropic API key | console.anthropic.com; used only for "Ask" |
+| AI provider keys | Any of Claude (Anthropic), OpenAI, Gemini, Grok (xAI) and Groq. Each key unlocks that provider's current models, listed live from its API. Claude and Grok are Ask-only; Anthropic and xAI offer no speech-to-text in this app |
 | Yoto | Create a **confidential** app at [dashboard.yoto.dev](https://dashboard.yoto.dev). Register the callback `https://audio.benlocher.com/api/yoto/callback` (and `http://localhost:5182/api/yoto/callback` for dev). Paste the client ID and secret into Settings, then **Connect a Yoto account** |
 
-Keys can also come from the environment (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `YOTO_CLIENT_ID`, `YOTO_CLIENT_SECRET`). Everything stored in the database is Fernet-encrypted with `CREDENTIAL_ENCRYPTION_KEY`.
+Keys can also come from the environment (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `GROQ_API_KEY`, `YOTO_CLIENT_ID`, `YOTO_CLIENT_SECRET`).
+
+**Transcription timestamps.** How precise the timestamps are depends on the model:
+- Whisper models (Groq's `whisper-large-v3-turbo`/`-v3`, OpenAI's `whisper-1`) return a timestamp every few seconds.
+- Gemini's transcribe model times each word, and the app groups the words into sentences.
+- Models that return only text, such as `gpt-transcribe`, are cut into 2-minute pieces, so each piece's start is the timestamp.
+
+**Ask on smaller models.** When the heard-so-far transcript doesn't fit the chosen model, the model sees the most recent stretch plus the earlier passages that best match the question. Groq is capped at a configurable 24k-token budget by default, because its per-minute token limits are far below its models' context windows. Everything stored in the database is Fernet-encrypted with `CREDENTIAL_ENCRYPTION_KEY`.
 
 Once a card is synced, link the playlist to a physical card in the Yoto app (Library → playlist → Link to card); there is no API for that step.
 
@@ -137,4 +143,4 @@ Logins are throttled (8 failed attempts per IP per 15 minutes).
 
 - Audible has no public API. These endpoints are the ones the official apps use, and Amazon can change them. Keep `audible` up to date.
 - Some Yoto API details are undocumented: the transcode polling endpoint and whether limits are enforced. The client is defensive, but treat the first sync as a test.
-- Transcription costs about $0.36 per hour of audio on `whisper-1`. The dialog shows an estimate before you start.
+- Transcription costs $0.04 per hour on Groq `whisper-large-v3-turbo` and about $0.36 per hour on OpenAI `whisper-1`, which OpenAI retires in February 2027. The dialog shows an estimate where the provider publishes a price.

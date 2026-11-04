@@ -6,6 +6,23 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
       "port": 5182
+    },
+    {
+      "name": "preview-backend",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["backend/manage.py", "runserver", "127.0.0.1:8012", "--noreload"],
+      "port": 8012,
+      "env": {
+        "DATABASE_URL": "postgresql://localhost:5432/audio_preview",
+        "DJANGO_CSRF_TRUSTED_ORIGINS": "http://localhost:5183"
+      }
+    },
+    {
+      "name": "preview-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend", "--", "--port", "5183"],
+      "port": 5183,
+      "env": { "AUDIO_BACKEND_PORT": "8012" }
     }
   ]
 }

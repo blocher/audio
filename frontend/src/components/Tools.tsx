@@ -6,6 +6,7 @@ import { api } from "../api";
 import { bytes, duration } from "../format";
 import { useAction } from "../hooks/queries";
 import type { Job, Preset, Track } from "../types";
+import ModelPicker, { type ModelChoice } from "./ModelPicker";
 import { Button, Modal, Note, useToast, errorText } from "./ui";
 
 export function usePresets() {
@@ -122,19 +123,22 @@ export function DownsizeDialog({ tracks, onClose }: { tracks: Track[]; onClose: 
 interface Estimate {
   tracks: number;
   minutes: number;
+  provider: string;
   model: string;
-  estimated_cost_usd: number;
+  estimated_cost_usd: number | null;
   configured: boolean;
 }
 
 export function TranscribeDialog({ tracks, onClose }: { tracks: Track[]; onClose: () => void }) {
   const toast = useToast();
   const ids = tracks.filter((t) => t.has_file).map((t) => t.id);
+  const [choice, setChoice] = useState<ModelChoice | null>(null);
+  const body = { track_ids: ids, provider: choice?.provider, model: choice?.model };
   const estimate = useQuery({
-    queryKey: ["transcribe-estimate", ids.join(",")],
-    queryFn: () => api.post<Estimate>("/transcripts/estimate", { track_ids: ids }),
+    queryKey: ["transcribe-estimate", ids.join(","), choice?.provider, choice?.model],
+    queryFn: () => api.post<Estimate>("/transcripts/estimate", body),
   });
-  const run = useAction(() => api.post<Job>("/transcripts/transcribe", { track_ids: ids }), [["books"], ["podcast"], ["collection"]]);
+  const run = useAction(() => api.post<Job>("/transcripts/transcribe", body), [["books"], ["podcast"], ["collection"]]);
   const e = estimate.data;
   return (
     <Modal
@@ -148,7 +152,7 @@ export function TranscribeDialog({ tracks, onClose }: { tracks: Track[]; onClose
           <Button
             variant="primary"
             icon={<FileText size={16} />}
-            disabled={!e?.tracks || !e.configured}
+            disabled={!e?.tracks || !e.configured || !choice}
             loading={run.isPending}
             onClick={() =>
               run.mutate(undefined, {
@@ -166,13 +170,20 @@ export function TranscribeDialog({ tracks, onClose }: { tracks: Track[]; onClose
       }
     >
       <div className="stack" style={{ "--gap": "14px" } as React.CSSProperties}>
-        <p className="muted">
-          Speech-to-text with OpenAI, with timestamps every few seconds. Transcripts power search and “Ask about this book”.
-        </p>
-        {e && !e.configured && (
+        <p className="muted">Speech-to-text with timestamps. Transcripts power search and “Ask about this book”.</p>
+        {e && !e.configured ? (
           <Note>
-            Add an OpenAI API key in <Link to="/settings">Settings</Link> first.
+            Add an OpenAI, Groq or Gemini API key in <Link to="/settings#ai">Settings</Link> first.
           </Note>
+        ) : (
+          <label className="field">
+            <span>Model</span>
+            <ModelPicker kind="stt" value={choice} onChange={setChoice} />
+            <small>
+              Groq Whisper is the cheapest. Models marked “timestamps every few seconds” line up most precisely; others
+              are timed in 2-minute steps (Gemini's transcribe model times each word).
+            </small>
+          </label>
         )}
         {e && (
           <dl className="kv">
@@ -180,10 +191,8 @@ export function TranscribeDialog({ tracks, onClose }: { tracks: Track[]; onClose
             <dd>
               {e.tracks} track(s) · {duration(e.minutes * 60000)}
             </dd>
-            <dt>Model</dt>
-            <dd>{e.model}</dd>
             <dt>Estimated cost</dt>
-            <dd>${e.estimated_cost_usd.toFixed(2)}</dd>
+            <dd>{e.estimated_cost_usd === null ? "price not published for this model" : `$${e.estimated_cost_usd.toFixed(2)}`}</dd>
           </dl>
         )}
         {e && e.tracks === 0 && <Note tone="ok">Everything selected is already transcribed.</Note>}

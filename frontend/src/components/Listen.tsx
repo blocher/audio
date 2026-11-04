@@ -1,11 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, MessageCircle, Plus, Search, Send, Sparkles, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, streamNdjson } from "../api";
 import { clock } from "../format";
 import { usePlayer, type QueueItem } from "../player";
 import type { ChatMessage, Conversation, WorkTranscript } from "../types";
+import ModelPicker, { type ModelChoice } from "./ModelPicker";
 import { Button, Empty, Note, Spinner, errorText } from "./ui";
+
+const MODEL_KEY = "audio.askModel";
 
 export type WorkRef = { book_id?: number; episode_id?: number; collection_id?: number };
 
@@ -137,6 +140,22 @@ export function AskPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [horizon, setHorizon] = useState<number | null>(null);
+  const [notice, setNotice] = useState("");
+  const [choice, setChoice] = useState<ModelChoice | null>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(MODEL_KEY) || "null");
+    } catch {
+      return null;
+    }
+  });
+  const pickModel = useCallback((next: ModelChoice) => {
+    setChoice(next);
+    try {
+      localStorage.setItem(MODEL_KEY, JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
   const logRef = useRef<HTMLDivElement>(null);
   const effectiveHorizon = horizon ?? positionMs;
 
@@ -166,6 +185,7 @@ export function AskPanel({
     if (!question || busy) return;
     setBusy(true);
     setError("");
+    setNotice("");
     setDraft("");
     let id = activeId;
     try {
@@ -177,16 +197,28 @@ export function AskPanel({
       }
       setMessages((m) => [...m, { id: -1, role: "user", content: question, position_ms: effectiveHorizon, citations: [], model: "", created_at: "" }]);
       let answer = "";
-      await streamNdjson(`/transcripts/conversations/${id}/ask`, { question, position_ms: Math.round(effectiveHorizon) }, (event) => {
+      const body = { question, position_ms: Math.round(effectiveHorizon), provider: choice?.provider, model: choice?.model };
+      await streamNdjson(`/transcripts/conversations/${id}/ask`, body, (event) => {
         if (event.type === "text") {
           answer += event.text;
           setStreaming(answer);
+        } else if (event.type === "notice") {
+          setNotice(event.text);
         } else if (event.type === "error") {
           setError(event.error);
         } else if (event.type === "done") {
           setMessages((m) => [
             ...m,
-            { id: event.message_id, role: "assistant", content: answer, position_ms: effectiveHorizon, citations: event.citations, model: event.model, created_at: "" },
+            {
+              id: event.message_id,
+              role: "assistant",
+              content: answer,
+              position_ms: effectiveHorizon,
+              citations: event.citations,
+              provider: event.provider,
+              model: event.model,
+              created_at: "",
+            },
           ]);
         }
       });
@@ -209,7 +241,7 @@ export function AskPanel({
     <div className="with-rail" style={{ gridTemplateColumns: "minmax(0,1fr) 260px" }}>
       <div className="chat">
         <div className="horizon">
-          <div className="row">
+          <div className="row wrap">
             <Sparkles size={16} color="var(--terracotta)" />
             <strong style={{ fontSize: "var(--text-sm)" }}>Spoiler horizon: {clock(effectiveHorizon)}</strong>
             <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
@@ -221,6 +253,7 @@ export function AskPanel({
                 Follow my position
               </Button>
             )}
+            <ModelPicker kind="chat" value={choice} onChange={pickModel} compact />
           </div>
           <input
             type="range"
@@ -243,8 +276,10 @@ export function AskPanel({
             <div key={`${m.id}-${i}`} className={`bubble ${m.role}`}>
               {m.role === "assistant" ? renderAnswer(m.content, playAt) : m.content}
               {m.role === "user" && <div className="bubble-meta" style={{ color: "rgb(255 248 241 / 0.7)" }}>at {clock(m.position_ms)}</div>}
+              {m.role === "assistant" && m.model && <div className="bubble-meta">{m.model}</div>}
             </div>
           ))}
+          {notice && <Note tone="info">{notice}</Note>}
           {streaming && <div className="bubble assistant">{renderAnswer(streaming, playAt)}</div>}
           {busy && !streaming && (
             <div className="bubble assistant">
