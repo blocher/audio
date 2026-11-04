@@ -1110,6 +1110,48 @@ input[type="range"] {
   margin-top: 24px;
 }
 
+/* A list of radio choices, each with a line of explanation. */
+.choices {
+  display: grid;
+  gap: 8px;
+}
+
+.choices label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.choices label:hover {
+  background: var(--paper-hover);
+}
+
+.choices label:has(input:checked) {
+  border-color: var(--terracotta);
+  background: var(--terracotta-soft);
+}
+
+.choices input {
+  accent-color: var(--terracotta);
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  grid-row: span 2;
+}
+
+.choices strong {
+  font-weight: 600;
+}
+
+.choices small {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
 @keyframes fade {
   from {
     opacity: 0;

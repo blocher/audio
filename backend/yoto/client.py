@@ -41,6 +41,10 @@ class Throttled(YotoError):
     """Yoto kept answering 429 Too Many Requests."""
 
 
+class NotFound(YotoError):
+    """Yoto answered 404."""
+
+
 def app_credentials() -> tuple[str, str]:
     stored = load_credential("yoto")
     client_id = stored.get("client_id") or settings.YOTO_CLIENT_ID
@@ -200,7 +204,8 @@ class Api:
                 time.sleep(_retry_after(response) or _backoff(attempt))
                 continue
             if response.status_code >= 400:
-                raise YotoError(f"Yoto {method} {path} → {response.status_code}: {response.text[:500]}")
+                error = NotFound if response.status_code == 404 else YotoError
+                raise error(f"Yoto {method} {path} → {response.status_code}: {response.text[:500]}")
             return response.json() if response.content else {}
         raise YotoError(f"Yoto {method} {path} kept failing ({response.status_code})")
 

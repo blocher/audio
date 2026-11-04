@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { queueFor } from "../components/TrackList";
-import { Button, Meter, Note, Spinner, errorText, useToast } from "../components/ui";
+import { Button, Meter, Modal, Note, Spinner, errorText, useToast } from "../components/ui";
 import { bytes, clock, duration, relative } from "../format";
 import { useAction, useActiveJob } from "../hooks/queries";
 import { usePlayer } from "../player";
@@ -25,7 +25,7 @@ export default function PlaylistDetail() {
   const [description, setDescription] = useState("");
   const save = useAction((body: object) => api.patch<PlaylistDetailT>(`/yoto/playlists/${id}`, body), [["playlist", id], ["playlists"]]);
   const sync = useAction(() => api.post<Job>("/yoto/sync", { playlist_ids: [Number(id)] }), [["playlist", id]]);
-  const remove = useAction((remote: boolean) => api.del(`/yoto/playlists/${id}?remote=${remote}`), [["playlists"]]);
+  const [deleting, setDeleting] = useState(false);
 
   const p = playlist.data;
   useEffect(() => {
@@ -107,16 +107,7 @@ export default function PlaylistDetail() {
               Use downsized files when available
             </label>
             <span className="spacer" />
-            <Button
-              variant="danger"
-              size="sm"
-              icon={<Trash2 size={14} />}
-              onClick={() => {
-                if (!confirm("Delete this playlist here?")) return;
-                const remote = !!p.card_id && confirm("Also delete it from your Yoto account?");
-                remove.mutate(remote, { onSuccess: () => navigate("/yoto") });
-              }}
-            >
+            <Button variant="danger" size="sm" icon={<Trash2 size={14} />} disabled={!!job} onClick={() => setDeleting(true)}>
               Delete
             </Button>
           </div>
@@ -125,6 +116,7 @@ export default function PlaylistDetail() {
           {job && <JobLine job={job} />}
         </div>
       </section>
+      {deleting && <DeletePlaylist playlist={p} onClose={() => setDeleting(false)} onDeleted={() => navigate("/yoto")} />}
 
       <div className="list">
         {p.items.map((item, i) => {
@@ -158,5 +150,64 @@ export default function PlaylistDetail() {
         })}
       </div>
     </>
+  );
+}
+
+type DeleteWhere = "yoto" | "everywhere" | "here";
+
+const DELETE_CHOICES: { id: DeleteWhere; label: string; button: string; hint: string }[] = [
+  { id: "yoto", label: "From Yoto only", button: "Delete from Yoto", hint: "Removes the card from your Yoto account. The playlist stays here as a draft, so you can send it again." },
+  { id: "everywhere", label: "From Yoto and here", button: "Delete everywhere", hint: "Removes the card from your Yoto account and deletes the playlist here." },
+  { id: "here", label: "Here only", button: "Delete here", hint: "Deletes the playlist here. The card stays on Yoto, but you can't update it from here any more." },
+];
+
+function DeletePlaylist({ playlist, onClose, onDeleted }: { playlist: PlaylistDetailT; onClose: () => void; onDeleted: () => void }) {
+  const toast = useToast();
+  const onYoto = !!playlist.card_id;
+  const [where, setWhere] = useState<DeleteWhere>(onYoto ? "yoto" : "here");
+  const remove = useAction(
+    (w: DeleteWhere) =>
+      w === "yoto" ? api.del(`/yoto/playlists/${playlist.id}/yoto`) : api.del(`/yoto/playlists/${playlist.id}?remote=${w === "everywhere"}`),
+    [["playlists"], ["playlist", String(playlist.id)]],
+  );
+  const go = () =>
+    remove.mutate(where, {
+      onSuccess: () => {
+        toast(where === "yoto" ? "Deleted from Yoto; the playlist is a draft again" : where === "everywhere" ? "Deleted from Yoto and here" : "Deleted");
+        onClose();
+        if (where !== "yoto") onDeleted();
+      },
+      onError: (e) => toast(errorText(e), "error"),
+    });
+
+  return (
+    <Modal
+      title={`Delete “${playlist.title}”`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" icon={<Trash2 size={16} />} loading={remove.isPending} onClick={go}>
+            {onYoto ? DELETE_CHOICES.find((c) => c.id === where)!.button : "Delete"}
+          </Button>
+        </>
+      }
+    >
+      {onYoto ? (
+        <div className="choices" role="radiogroup">
+          {DELETE_CHOICES.map((c) => (
+            <label key={c.id}>
+              <input type="radio" name="delete-where" checked={where === c.id} onChange={() => setWhere(c.id)} />
+              <strong>{c.label}</strong>
+              <small>{c.hint}</small>
+            </label>
+          ))}
+        </div>
+      ) : (
+        <p className="muted">This playlist hasn't been sent to Yoto, so it's only deleted here.</p>
+      )}
+    </Modal>
   );
 }

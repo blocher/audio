@@ -288,6 +288,28 @@ def sync_playlist(playlist: Playlist, on_progress=None) -> Playlist:
     return playlist
 
 
+def remove_from_yoto(playlist: Playlist) -> Playlist:
+    """Delete the card from the Yoto account and turn the playlist back into a draft.
+
+    The uploaded audio and cover stay cached, so sending it again later doesn't re-upload anything.
+    A card already deleted in the Yoto app counts as removed.
+    """
+    if playlist.card_id:
+        if playlist.account is None or not playlist.account.connected:
+            raise client.YotoError("This card's Yoto account isn't connected any more; reconnect it first.")
+        with client.Api(playlist.account) as api:
+            try:
+                api.delete_content(playlist.card_id)
+            except client.NotFound:
+                pass
+    playlist.card_id = ""
+    playlist.status = Playlist.Status.DRAFT
+    playlist.last_synced_at = None
+    playlist.last_error = ""
+    playlist.save()
+    return playlist
+
+
 def mark_changed(playlist: Playlist) -> None:
     if playlist.status == Playlist.Status.SYNCED:
         playlist.status = Playlist.Status.CHANGED

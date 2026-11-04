@@ -11,6 +11,7 @@ from ninja.errors import HttpError
 
 from core.api import JobOut, PackIn, TrackOut, card_summary, pack_limits, run_pack
 from core.jobs import active_job, enqueue
+from core.models import Job
 
 from . import client, services
 from .models import Playlist, PlaylistItem, YotoAccount
@@ -319,17 +320,36 @@ def update_playlist(request, pid: int, payload: PlaylistPatch):
     return with_totals(playlist)
 
 
+def _remove_from_yoto(playlist: Playlist) -> None:
+    # A batch sync has no single target, so also catch a playlist that's mid-sync while any sync is running.
+    batch_syncing = (
+        playlist.status == Playlist.Status.SYNCING
+        and Job.objects.filter(kind="yoto_sync", status__in=[Job.Status.QUEUED, Job.Status.RUNNING]).exists()
+    )
+    if active_job(playlist, "yoto_sync") or batch_syncing:
+        raise HttpError(409, "This card is syncing to Yoto; wait for it to finish, then delete it.")
+    try:
+        services.remove_from_yoto(playlist)
+    except client.YotoError as exc:
+        raise HttpError(502, f"Couldn't delete it on Yoto: {exc}") from exc
+
+
 @router.delete("/playlists/{pid}")
 def delete_playlist(request, pid: int, remote: bool = False):
+    """Delete the playlist here. With remote, delete its card from the Yoto account first."""
     playlist = get_object_or_404(Playlist, pk=pid)
-    if remote and playlist.card_id and playlist.account:
-        try:
-            with client.Api(playlist.account) as api:
-                api.delete_content(playlist.card_id)
-        except client.YotoError as exc:
-            raise HttpError(502, f"Couldn't delete it on Yoto: {exc}") from exc
+    if remote:
+        _remove_from_yoto(playlist)
     playlist.delete()
     return {"ok": True}
+
+
+@router.delete("/playlists/{pid}/yoto", response=PlaylistDetailOut)
+def delete_from_yoto(request, pid: int):
+    """Delete the card from the Yoto account but keep the playlist here as a draft."""
+    playlist = get_object_or_404(Playlist, pk=pid)
+    _remove_from_yoto(playlist)
+    return with_totals(playlist)
 
 
 class SyncIn(Schema):
