@@ -32,8 +32,18 @@ Cite moments in the transcript with their timestamp in square brackets, like [1:
 there. Keep answers conversational and reasonably short unless asked for depth. The transcript comes from automatic \
 speech recognition, so names may be misspelled; use the most plausible spelling."""
 
+SYSTEM_WHOLE = """You are a thoughtful companion for an audiobook or podcast, and the listener has asked about the \
+whole work. Spoilers are fine: they chose to hear about all of it, including parts they may not have reached.
+
+You are given the full transcript, with timestamps in [h:mm:ss]. Ground every answer in that transcript. When the \
+answer comes from after the listener's position, you may say so briefly, but don't hold anything back.
+
+Cite moments in the transcript with their timestamp in square brackets, like [1:02:13], so the listener can jump \
+there. Keep answers conversational and reasonably short unless asked for depth. The transcript comes from automatic \
+speech recognition, so names may be misspelled; use the most plausible spelling."""
+
 EXCERPT_NOTE = """Note: the transcript below is too long for this model, so it contains the most recent part of \
-what the listener has heard plus earlier passages that look relevant to the question; “[…]” marks gaps. If the \
+the transcript plus earlier passages that look relevant to the question; “[…]” marks gaps. If the \
 answer may be in a gap, say so rather than guessing."""
 
 CHARS_PER_TOKEN = 3.6
@@ -69,8 +79,8 @@ def work_title(conversation: Conversation) -> str:
 # ---------- transcript → passages → text that fits the model ----------
 
 
-def passages(conversation: Conversation, position_ms: int) -> list[dict]:
-    """Heard-so-far transcript as ~90-second passages, each starting with a timestamp."""
+def passages(conversation: Conversation, position_ms: int | None) -> list[dict]:
+    """Transcript up to ``position_ms`` (all of it when None) as ~90-second passages, each opening with a time."""
     rows = timeline(list(work_tracks(**target_kwargs(conversation))), until_ms=position_ms)
     out: list[dict] = []
     for row in rows:
@@ -290,21 +300,39 @@ def stream_answer(
     position_ms: int,
     provider: str | None = None,
     model: str | None = None,
+    whole_work: bool = False,
 ) -> Iterator[dict]:
-    """Yield {"type": "text", "text": ...} deltas, then a final {"type": "done", ...} with the saved message."""
-    provider, model = ai.resolve("chat", provider, model)
-    all_passages = passages(conversation, position_ms)
-    if not all_passages:
-        raise RuntimeError("Nothing has been transcribed up to this point yet.")
+    """Yield {"type": "text", "text": ...} deltas, then a final {"type": "done", ...} with the saved message.
 
-    history = [{"role": m.role, "content": m.content} for m in conversation.messages.order_by("created_at", "id")]
+    Normally the model only sees the transcript up to ``position_ms``; with ``whole_work`` it sees all of it and is
+    told spoilers are fine.
+    """
+    provider, model = ai.resolve("chat", provider, model)
+    all_passages = passages(conversation, None if whole_work else position_ms)
+    if not all_passages:
+        if whole_work or not passages(conversation, None):
+            raise RuntimeError("Nothing has been transcribed yet.")
+        whole = "whole episode" if conversation.episode_id else "whole book"
+        raise RuntimeError(
+            f"Nothing has been said before {fmt_time(position_ms)}, so there's nothing to answer from yet. "
+            f"Move the spoiler limit later, or ask about the {whole}."
+        )
+
+    earlier = conversation.messages.order_by("created_at", "id")
+    if not whole_work:
+        # Whole-work answers can hold spoilers; keep them out of a spoiler-safe question's context.
+        earlier = earlier.filter(whole_work=False)
+    history = [{"role": m.role, "content": m.content} for m in earlier]
     history_chars = sum(len(m["content"]) for m in history) + len(question)
     budget_chars = int(budget_tokens(provider, model, history_chars) * CHARS_PER_TOKEN)
     selected, excerpted = fit(all_passages, budget_chars, question)
 
-    Message.objects.create(conversation=conversation, role="user", content=question, position_ms=position_ms)
+    Message.objects.create(
+        conversation=conversation, role="user", content=question, position_ms=position_ms, whole_work=whole_work
+    )
+    scope = " (asking about the whole work; spoilers allowed)" if whole_work else ""
     context = (
-        f"Work: {work_title(conversation)}\nListener's position: {fmt_time(position_ms)}\n\n"
+        f"Work: {work_title(conversation)}\nListener's position: {fmt_time(position_ms)}{scope}\n\n"
         + (f"{EXCERPT_NOTE}\n\n" if excerpted else "")
         + f"<transcript>\n{render(selected, all_passages)}\n</transcript>"
     )
@@ -317,7 +345,11 @@ def stream_answer(
     chunks: list[str] = []
     usage: dict = {}
     for kind, value in stream_model(
-        provider, model, SYSTEM, context, [*history, {"role": "user", "content": question}]
+        provider,
+        model,
+        SYSTEM_WHOLE if whole_work else SYSTEM,
+        context,
+        [*history, {"role": "user", "content": question}],
     ):
         if kind == "text":
             chunks.append(value)
@@ -332,6 +364,7 @@ def stream_answer(
         role="assistant",
         content=answer,
         position_ms=position_ms,
+        whole_work=whole_work,
         citations=citations(answer),
         provider=provider,
         model=usage.get("model") or model,

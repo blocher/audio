@@ -261,6 +261,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   position_ms: number;
+  whole_work?: boolean;
   citations: number[];
   provider?: string;
   model: string;

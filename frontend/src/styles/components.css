@@ -851,6 +851,12 @@ input[type="range"] {
   gap: 4px;
   border-bottom: 1px solid var(--paper-line);
   margin-bottom: 20px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tabs button {
@@ -860,10 +866,11 @@ input[type="range"] {
   font-weight: 600;
   color: var(--ink-muted);
   border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex: none;
+  white-space: nowrap;
 }
 
 .tabs button:hover {
@@ -873,6 +880,19 @@ input[type="range"] {
 .tabs button.active {
   color: var(--terracotta);
   border-bottom-color: var(--terracotta);
+}
+
+@media (max-width: 600px) {
+  .wide-only {
+    display: none;
+  }
+  .tabs {
+    gap: 0;
+  }
+  .tabs button {
+    padding: 10px 7px;
+    gap: 5px;
+  }
 }
 
 /* ───────── Player bar ───────── */
@@ -990,6 +1010,9 @@ input[type="range"] {
 @media (max-width: 900px) {
   .player {
     grid-template-columns: 1fr auto;
+  }
+  .player.empty {
+    height: 52px;
   }
   .player .scrub,
   .player .extras {
@@ -1403,6 +1426,109 @@ mark {
 
 .horizon input[type="range"] {
   width: 100%;
+}
+
+.horizon-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.horizon-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.ask-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 28px;
+  align-items: start;
+}
+
+.ask-convos {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ask-convo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.ask-convo:hover,
+.ask-convo.active {
+  background: var(--paper-sunk);
+}
+
+@media (max-width: 900px) {
+  .ask-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  /* Conversations become a swipeable strip above the chat. */
+  .ask-convos {
+    order: -1;
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 0 var(--gutter);
+  }
+  .ask-convos::-webkit-scrollbar {
+    display: none;
+  }
+  .ask-convos > * {
+    flex: none;
+  }
+  .ask-convo {
+    max-width: 220px;
+    border: 1px solid var(--paper-line);
+  }
+  .chat {
+    height: 72dvh;
+    min-height: 360px;
+  }
+  .chat-log {
+    padding: 14px;
+  }
+  .bubble {
+    max-width: 92%;
+  }
+  .horizon {
+    padding: 10px 12px;
+  }
+  .horizon-top .select {
+    flex: 1 1 140px;
+    min-width: 0;
+    max-width: none !important;
+  }
+  .chat-input {
+    padding: 10px;
+  }
+  /* The keyboard already takes half the screen while typing a question. */
+  body:has(.chat-input input:focus) .player {
+    display: none;
+  }
+  /* iOS zooms the page when a focused field is under 16px. */
+  .input,
+  .select,
+  .textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* ───────── Dropzone ───────── */

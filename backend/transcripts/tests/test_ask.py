@@ -70,3 +70,45 @@ def test_group_words_into_sentences():
     segments = group_words(words)
     assert segments[0]["text"].startswith("Once upon") and segments[0]["text"].endswith("king.")
     assert segments[1]["start_ms"] == words[9]["start_ms"]
+
+
+@pytest.fixture
+def fake_model(monkeypatch):
+    from transcripts import ask
+
+    seen = {}
+
+    def stream(provider, model, system, context, messages):
+        seen.update(system=system, context=context, messages=messages)
+        yield "text", "An answer."
+        yield "usage", {"model": model}
+
+    monkeypatch.setattr(ask.ai, "resolve", lambda kind, provider, model: ("anthropic", "claude-test"))
+    monkeypatch.setattr(ask, "budget_tokens", lambda *a: 100_000)
+    monkeypatch.setattr(ask, "stream_model", stream)
+    return seen
+
+
+def test_whole_work_reads_past_the_position_and_allows_spoilers(book_conversation, fake_model):
+    from transcripts.ask import SYSTEM_WHOLE, stream_answer
+
+    events = list(stream_answer(book_conversation, "Who did it?", 300_000, whole_work=True))
+    assert "butler" in fake_model["context"] and fake_model["system"] == SYSTEM_WHOLE
+    assert events[-1]["type"] == "done"
+    assert all(m.whole_work for m in book_conversation.messages.all())
+
+
+def test_spoiler_safe_question_ignores_earlier_whole_work_answers(book_conversation, fake_model):
+    from transcripts.ask import SYSTEM, stream_answer
+
+    list(stream_answer(book_conversation, "Who did it?", 300_000, whole_work=True))
+    list(stream_answer(book_conversation, "What happened so far?", 300_000))
+    assert "butler" not in fake_model["context"] and fake_model["system"] == SYSTEM
+    assert [m["content"] for m in fake_model["messages"]] == ["What happened so far?"]
+
+
+def test_position_before_any_speech_explains_what_to_do(book_conversation, fake_model):
+    from transcripts.ask import stream_answer
+
+    with pytest.raises(RuntimeError, match="whole book"):
+        list(stream_answer(book_conversation, "Hi?", 0))

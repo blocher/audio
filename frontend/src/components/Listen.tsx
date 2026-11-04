@@ -9,6 +9,11 @@ import ModelPicker, { type ModelChoice } from "./ModelPicker";
 import { Button, Empty, Note, Spinner, errorText } from "./ui";
 
 const MODEL_KEY = "audio.askModel";
+const SCOPE_KEY = "audio.askWholeWork";
+
+function workNoun(work: WorkRef): string {
+  return work.episode_id ? "episode" : work.collection_id ? "collection" : "book";
+}
 
 export type WorkRef = { book_id?: number; episode_id?: number; collection_id?: number };
 
@@ -140,6 +145,22 @@ export function AskPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [horizon, setHorizon] = useState<number | null>(null);
+  const [wholeWork, setWholeWork] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SCOPE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const pickScope = (whole: boolean) => {
+    setWholeWork(whole);
+    try {
+      localStorage.setItem(SCOPE_KEY, whole ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const noun = workNoun(work);
   const [notice, setNotice] = useState("");
   const [choice, setChoice] = useState<ModelChoice | null>(() => {
     try {
@@ -163,8 +184,12 @@ export function AskPanel({
     if (activeId === null && conversations.data?.length) setActiveId(conversations.data[0].id);
   }, [conversations.data, activeId]);
 
+  // A conversation created by the question being asked right now: its messages are already on screen.
+  const createdRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (activeId === null) return setMessages([]);
+    if (createdRef.current === activeId) return;
     api.get<Conversation>(`/transcripts/conversations/${activeId}`).then((c) => setMessages(c.messages ?? []));
   }, [activeId]);
 
@@ -192,12 +217,20 @@ export function AskPanel({
       if (id === null) {
         const created = await api.post<Conversation>("/transcripts/conversations", work);
         id = created.id;
+        createdRef.current = id;
         setActiveId(id);
         qc.invalidateQueries({ queryKey: ["conversations"] });
       }
-      setMessages((m) => [...m, { id: -1, role: "user", content: question, position_ms: effectiveHorizon, citations: [], model: "", created_at: "" }]);
+      const asked = { position_ms: effectiveHorizon, whole_work: wholeWork };
+      setMessages((m) => [...m, { id: -1, role: "user", content: question, ...asked, citations: [], model: "", created_at: "" }]);
       let answer = "";
-      const body = { question, position_ms: Math.round(effectiveHorizon), provider: choice?.provider, model: choice?.model };
+      const body = {
+        question,
+        position_ms: Math.round(effectiveHorizon),
+        whole_work: wholeWork,
+        provider: choice?.provider,
+        model: choice?.model,
+      };
       await streamNdjson(`/transcripts/conversations/${id}/ask`, body, (event) => {
         if (event.type === "text") {
           answer += event.text;
@@ -213,7 +246,7 @@ export function AskPanel({
               id: event.message_id,
               role: "assistant",
               content: answer,
-              position_ms: effectiveHorizon,
+              ...asked,
               citations: event.citations,
               provider: event.provider,
               model: event.model,
@@ -237,45 +270,73 @@ export function AskPanel({
     qc.invalidateQueries({ queryKey: ["conversations"] });
   }
 
+  const nothingHeard = !wholeWork && effectiveHorizon < 1000;
+
   return (
-    <div className="with-rail" style={{ gridTemplateColumns: "minmax(0,1fr) 260px" }}>
+    <div className="ask-layout">
       <div className="chat">
         <div className="horizon">
-          <div className="row wrap">
-            <Sparkles size={16} color="var(--terracotta)" />
-            <strong style={{ fontSize: "var(--text-sm)" }}>Spoiler horizon: {clock(effectiveHorizon)}</strong>
-            <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-              Answers only use what's been heard up to here.
-            </span>
-            <span className="spacer" />
-            {horizon !== null && (
-              <Button size="sm" variant="ghost" onClick={() => setHorizon(null)}>
-                Follow my position
-              </Button>
-            )}
+          <div className="horizon-top">
+            <div className="segmented" role="radiogroup" aria-label="What answers can draw on">
+              <button role="radio" aria-checked={!wholeWork} className={!wholeWork ? "active" : ""} onClick={() => pickScope(false)}>
+                Up to where I am
+              </button>
+              <button role="radio" aria-checked={wholeWork} className={wholeWork ? "active" : ""} onClick={() => pickScope(true)}>
+                Whole {noun}
+              </button>
+            </div>
             <ModelPicker kind="chat" value={choice} onChange={pickModel} compact />
           </div>
-          <input
-            type="range"
-            min={0}
-            max={Math.max(totalMs, 1)}
-            step={10000}
-            value={effectiveHorizon}
-            onChange={(e) => setHorizon(Number(e.target.value))}
-            aria-label="Listening position for answers"
-          />
+          {wholeWork ? (
+            <div className="horizon-note">
+              <Sparkles size={14} color="var(--terracotta)" />
+              Spoilers allowed: answers can use the whole {noun}.
+            </div>
+          ) : (
+            <>
+              <div className="horizon-note">
+                <Sparkles size={14} color="var(--terracotta)" />
+                <strong>No spoilers past {clock(effectiveHorizon)}</strong>
+                <span className="spacer" />
+                {horizon !== null && (
+                  <Button size="sm" variant="ghost" onClick={() => setHorizon(null)}>
+                    Follow my position
+                  </Button>
+                )}
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(totalMs, 1)}
+                step={10000}
+                value={effectiveHorizon}
+                onChange={(e) => setHorizon(Number(e.target.value))}
+                aria-label="Spoiler limit: answers only use the transcript up to here"
+              />
+            </>
+          )}
         </div>
         <div className="chat-log" ref={logRef}>
           {!messages.length && !streaming && (
             <Empty icon={<MessageCircle size={34} />} title={`Ask about ${title}`}>
-              “Who is Mr. Craven again?” “What just happened in this chapter?” “Remind me why they left?” — no spoilers past your
-              position.
+              {wholeWork
+                ? `“How does it end?” “What becomes of the main character?” Spoilers allowed: answers draw on the whole ${noun}.`
+                : "“Who is Mr. Craven again?” “What just happened in this chapter?” “Remind me why they left?” — no spoilers past your position."}
             </Empty>
+          )}
+          {nothingHeard && !messages.length && (
+            <Note tone="info">
+              You're at 0:00, so nothing has been heard yet. Drag the spoiler limit later, or switch to <strong>Whole {noun}</strong>.
+            </Note>
           )}
           {messages.map((m, i) => (
             <div key={`${m.id}-${i}`} className={`bubble ${m.role}`}>
               {m.role === "assistant" ? renderAnswer(m.content, playAt) : m.content}
-              {m.role === "user" && <div className="bubble-meta" style={{ color: "rgb(255 248 241 / 0.7)" }}>at {clock(m.position_ms)}</div>}
+              {m.role === "user" && (
+                <div className="bubble-meta" style={{ color: "rgb(255 248 241 / 0.7)" }}>
+                  {m.whole_work ? `whole ${noun}` : `up to ${clock(m.position_ms)}`}
+                </div>
+              )}
               {m.role === "assistant" && m.model && <div className="bubble-meta">{m.model}</div>}
             </div>
           ))}
@@ -295,26 +356,22 @@ export function AskPanel({
             ask();
           }}
         >
-          <input className="input" placeholder="Ask a question about what you've heard…" value={draft} onChange={(e) => setDraft(e.target.value)} />
+          <input
+            className="input"
+            placeholder={wholeWork ? `Ask anything about the ${noun}…` : "Ask about what you've heard…"}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            enterKeyHint="send"
+          />
           <Button variant="primary" type="submit" iconOnly icon={<Send size={17} />} loading={busy} aria-label="Ask" />
         </form>
       </div>
-      <div className="stack">
+      <div className="ask-convos">
         <Button icon={<Plus size={16} />} onClick={() => (setActiveId(null), setMessages([]))}>
           New conversation
         </Button>
         {(conversations.data ?? []).map((c) => (
-          <div
-            key={c.id}
-            className="row"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 8,
-              background: c.id === activeId ? "var(--paper-sunk)" : undefined,
-              cursor: "pointer",
-            }}
-            onClick={() => setActiveId(c.id)}
-          >
+          <div key={c.id} className={`ask-convo ${c.id === activeId ? "active" : ""}`} onClick={() => setActiveId(c.id)}>
             <MessageCircle size={14} />
             <span className="truncate" style={{ flex: 1, fontSize: "var(--text-sm)" }}>
               {c.title || "New conversation"}

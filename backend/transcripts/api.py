@@ -114,6 +114,7 @@ class MessageOut(Schema):
     role: str
     content: str
     position_ms: int
+    whole_work: bool
     citations: list
     provider: str
     model: str
@@ -172,6 +173,7 @@ def delete_conversation(request, cid: int):
 class AskIn(Schema):
     question: str = Field(min_length=1, max_length=4000)
     position_ms: int = Field(ge=0)
+    whole_work: bool = False
     provider: str | None = None
     model: str | None = None
 
@@ -186,7 +188,12 @@ def ask_question(request, cid: int, payload: AskIn):
     def events():
         try:
             for event in ask.stream_answer(
-                conversation, payload.question.strip(), payload.position_ms, payload.provider, payload.model
+                conversation,
+                payload.question.strip(),
+                payload.position_ms,
+                payload.provider,
+                payload.model,
+                whole_work=payload.whole_work,
             ):
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # surface to the chat UI rather than cutting the stream silently

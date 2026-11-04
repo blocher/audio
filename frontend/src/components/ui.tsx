@@ -178,7 +178,16 @@ export function Tabs<T extends string>({
   return (
     <div className="tabs" role="tablist">
       {tabs.map((t) => (
-        <button key={t.id} role="tab" aria-selected={value === t.id} className={value === t.id ? "active" : ""} onClick={() => onChange(t.id)}>
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={value === t.id}
+          className={value === t.id ? "active" : ""}
+          onClick={(e) => {
+            onChange(t.id);
+            e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+          }}
+        >
           {t.label}
         </button>
       ))}

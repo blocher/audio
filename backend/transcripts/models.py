@@ -61,6 +61,7 @@ class Message(TimeStamped):
     role = models.CharField(max_length=10)  # "user" | "assistant"
     content = models.TextField()
     position_ms = models.BigIntegerField(default=0, help_text="Spoiler horizon used for this question")
+    whole_work = models.BooleanField(default=False, help_text="Asked about the whole work, spoilers allowed")
     citations = models.JSONField(default=list, blank=True)
     provider = models.CharField(max_length=20, blank=True)
     model = models.CharField(max_length=80, blank=True)

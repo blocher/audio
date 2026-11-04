@@ -147,7 +147,7 @@ export default function BookDetail() {
         tabs={[
           { id: "chapters", label: <><ListMusic size={16} /> Chapters {ready && <span className="pill">{b.tracks.length}</span>}</> },
           { id: "transcript", label: <><FileText size={16} /> Transcript {b.transcribed_count > 0 && <span className="pill sky">{b.transcribed_count}/{b.track_count}</span>}</> },
-          { id: "ask", label: <><MessageCircle size={16} /> Ask about this book</> },
+          { id: "ask", label: <><MessageCircle size={16} /> Ask<span className="wide-only"> about this book</span></> },
         ]}
       />
 
