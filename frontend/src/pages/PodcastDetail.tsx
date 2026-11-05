@@ -24,7 +24,7 @@ export default function PodcastDetail() {
   const job = useActiveJob("podcast", Number(id));
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [filter, setFilter] = useState<"all" | "saved" | "remote">("all");
-  const [order, setOrder] = useState<"newest" | "oldest">("newest");
+  const [order, setOrder] = useState<"newest" | "oldest">("oldest");
   const [dialog, setDialog] = useState<"download" | "downsize" | "transcribe" | "yoto" | null>(null);
   const [episodeView, setEpisodeView] = useState<{ episode: Episode; mode: "transcript" | "ask" } | null>(null);
   const refresh = useAction(() => api.post(`/podcasts/${id}/refresh`), [["podcast", id], ["podcasts"]]);
