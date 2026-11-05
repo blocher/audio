@@ -1,16 +1,28 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowLeft, ArrowUp, CloudUpload, Save, SquareStack, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, ArrowDownToLine, ArrowLeft, ArrowUp, ArrowUpToLine, CloudUpload, GripVertical, Plus, Save, SquareStack, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { queueFor } from "../components/TrackList";
 import { Button, Meter, Modal, Note, Spinner, errorText, useToast } from "../components/ui";
-import { bytes, clock, duration, relative } from "../format";
+import { bytes, clock, duration, mb, relative } from "../format";
+import { sameOrder, shiftKeys, toEdge, useDragSort } from "../hooks/dragSort";
 import { useAction, useActiveJob } from "../hooks/queries";
 import { usePlayer } from "../player";
-import type { Job, PlaylistDetail as PlaylistDetailT, SettingsData, YotoAccount } from "../types";
+import type { Job, PackGroup, PlaylistDetail as PlaylistDetailT, PlaylistItem, SettingsData, YotoAccount } from "../types";
 import { JobLine } from "./BookDetail";
-import { statusPill } from "./Yoto";
+import { SourcePicker, statusPill } from "./Yoto";
+
+const MIB = 1024 * 1024;
+
+/** What an item takes up on the card: the file it will upload (downsized if the card uses those), cut to its slice. */
+function itemBytes(item: PlaylistItem, useOptimized: boolean) {
+  const t = item.track;
+  const size = useOptimized && t.optimized_size_bytes ? t.optimized_size_bytes : t.size_bytes;
+  return Math.round((size * itemMs(item)) / Math.max(t.duration_ms, 1));
+}
+
+const itemMs = (item: PlaylistItem) => (item.end_ms ?? item.track.duration_ms) - (item.start_ms ?? 0);
 
 export default function PlaylistDetail() {
   const { id } = useParams();
@@ -26,6 +38,10 @@ export default function PlaylistDetail() {
   const save = useAction((body: object) => api.patch<PlaylistDetailT>(`/yoto/playlists/${id}`, body), [["playlist", id], ["playlists"]]);
   const sync = useAction(() => api.post<Job>("/yoto/sync", { playlist_ids: [Number(id)] }), [["playlist", id]]);
   const [deleting, setDeleting] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const anchor = useRef<number | null>(null);
+  const qc = useQueryClient();
 
   const p = playlist.data;
   useEffect(() => {
@@ -35,16 +51,71 @@ export default function PlaylistDetail() {
     }
   }, [p?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const ids = p?.items.map((i) => i.id) ?? [];
+  // Show the new order straight away; the server's answer replaces it.
+  const reorder = (next: number[]) => {
+    if (!p || sameOrder(next, ids)) return;
+    const byId = new Map(p.items.map((i) => [i.id, i]));
+    const items = next.map((x) => byId.get(x)).filter((i): i is PlaylistItem => !!i);
+    qc.setQueryData<PlaylistDetailT>(["playlist", id], { ...p, items, item_count: items.length });
+    save.mutate(
+      { item_ids: next },
+      {
+        onError: (e) => {
+          toast(errorText(e), "error");
+          qc.invalidateQueries({ queryKey: ["playlist", id] });
+        },
+      },
+    );
+  };
+  const { listRef, handle, rowClass, dragging } = useDragSort(ids, picked, reorder);
+
   if (playlist.isLoading) return <Spinner size={26} />;
   if (playlist.isError || !p) return <Note tone="error">{errorText(playlist.error)}</Note>;
 
-  const ids = p.items.map((i) => i.id);
-  const move = (index: number, delta: number) => {
-    const next = [...ids];
-    const [x] = next.splice(index, 1);
-    next.splice(index + delta, 0, x);
-    save.mutate({ item_ids: next });
+  const move = (index: number, delta: number) => reorder(shiftKeys(ids, new Set([ids[index]]), delta as -1 | 1));
+  const remove = (gone: Set<number>) => {
+    reorder(ids.filter((x) => !gone.has(x)));
+    setPicked((s) => new Set([...s].filter((x) => !gone.has(x))));
   };
+  // Click ticks one row; shift-click ticks every row from the last one you clicked.
+  const toggle = (itemId: number, on: boolean, shift: boolean) => {
+    const from = anchor.current === null ? -1 : ids.indexOf(anchor.current);
+    const to = ids.indexOf(itemId);
+    const span = shift && from >= 0 ? ids.slice(Math.min(from, to), Math.max(from, to) + 1) : [itemId];
+    setPicked((s) => {
+      const next = new Set(s);
+      for (const x of span) {
+        if (on) next.add(x);
+        else next.delete(x);
+      }
+      return next;
+    });
+    anchor.current = itemId;
+  };
+  const pickedItems = p.items.filter((i) => picked.has(i.id));
+  const pickedBytes = pickedItems.reduce((a, i) => a + itemBytes(i, p.use_optimized), 0);
+  const pickedMs = pickedItems.reduce((a, i) => a + itemMs(i), 0);
+  const allPicked = picked.size > 0 && picked.size === ids.length;
+  const first = ids.findIndex((x) => picked.has(x));
+  const last = ids.length - 1 - [...ids].reverse().findIndex((x) => picked.has(x));
+  // Up/down are pointless when the ticked rows already sit together at that end.
+  const atTop = picked.size > 0 && last === picked.size - 1;
+  const atBottom = picked.size > 0 && first === ids.length - picked.size;
+  const addTracks = async (groups: PackGroup[]) => {
+    const present = new Set(p.items.map((i) => i.track.id));
+    const all = groups.flatMap((g) => g.track_ids);
+    const fresh = [...new Set(all)].filter((t) => !present.has(t));
+    if (!fresh.length) {
+      toast("Those tracks are already on this card");
+      return;
+    }
+    await save.mutateAsync({ add_track_ids: fresh });
+    setAdding(false);
+    const skipped = new Set(all).size - fresh.length;
+    toast(`Added ${fresh.length} track${fresh.length === 1 ? "" : "s"}${skipped ? ` (${skipped} already on the card)` : ""}`);
+  };
+
   const connected = (accounts.data ?? []).some((a) => a.connected);
   // The card limits come from Settings; a length limit of 0 means length isn't checked.
   const limitMb = settings.data?.preferences.card_limit_mb || 500;
@@ -117,17 +188,83 @@ export default function PlaylistDetail() {
         </div>
       </section>
       {deleting && <DeletePlaylist playlist={p} onClose={() => setDeleting(false)} onDeleted={() => navigate("/yoto")} />}
+      {adding && <SourcePicker addTo={{ title: p.title, freeBytes: limitMb * MIB - p.total_bytes }} onClose={() => setAdding(false)} onPicked={addTracks} />}
 
-      <div className="list">
+      <div className={`list-toolbar row wrap ${picked.size ? "active" : ""}`}>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={allPicked}
+            disabled={!ids.length}
+            ref={(el) => {
+              if (el) el.indeterminate = picked.size > 0 && !allPicked;
+            }}
+            onChange={(e) => setPicked(e.target.checked ? new Set(ids) : new Set())}
+            aria-label="Select every track"
+          />
+          {picked.size ? (
+            <span className="tabular">
+              {picked.size} selected · <strong>{mb(pickedBytes)}</strong> · {duration(pickedMs)}
+            </span>
+          ) : (
+            <span className="muted">
+              {ids.length} track{ids.length === 1 ? "" : "s"} · drag <GripVertical size={13} style={{ verticalAlign: "-2px" }} /> to reorder, or tick some to move together
+            </span>
+          )}
+        </label>
+        <span className="spacer" />
+        {picked.size > 0 ? (
+          <div className="row" style={{ "--gap": "4px" } as React.CSSProperties}>
+            <Button size="sm" variant="ghost" iconOnly icon={<ArrowUpToLine size={15} />} disabled={atTop} onClick={() => reorder(toEdge(ids, picked, "top"))} aria-label="Move selected to the top" title="Move to the top" />
+            <Button size="sm" variant="ghost" iconOnly icon={<ArrowUp size={15} />} disabled={atTop} onClick={() => reorder(shiftKeys(ids, picked, -1))} aria-label="Move selected up" title="Move up" />
+            <Button size="sm" variant="ghost" iconOnly icon={<ArrowDown size={15} />} disabled={atBottom} onClick={() => reorder(shiftKeys(ids, picked, 1))} aria-label="Move selected down" title="Move down" />
+            <Button size="sm" variant="ghost" iconOnly icon={<ArrowDownToLine size={15} />} disabled={atBottom} onClick={() => reorder(toEdge(ids, picked, "bottom"))} aria-label="Move selected to the bottom" title="Move to the bottom" />
+            <Button size="sm" variant="danger" icon={<Trash2 size={14} />} onClick={() => remove(picked)}>
+              Remove
+            </Button>
+            <Button size="sm" variant="ghost" iconOnly icon={<X size={15} />} onClick={() => setPicked(new Set())} aria-label="Clear selection" title="Clear selection" />
+          </div>
+        ) : (
+          <Button size="sm" icon={<Plus size={15} />} onClick={() => setAdding(true)}>
+            Add tracks
+          </Button>
+        )}
+      </div>
+
+      <div className={`list sortable ${dragging ? "is-dragging" : ""}`} ref={listRef}>
         {p.items.map((item, i) => {
-          const span = (item.end_ms ?? item.track.duration_ms) - (item.start_ms ?? 0);
+          const span = itemMs(item);
+          const on = picked.has(item.id);
           return (
-            <div key={item.id} className="list-row">
+            <div key={item.id} data-sort-row className={`list-row ${on ? "selected" : ""} ${rowClass(item.id, i)}`}>
+              <button
+                type="button"
+                className="grip"
+                aria-label={`Drag ${item.title || item.track.title} to reorder; or use the arrow keys`}
+                title="Drag to reorder"
+                {...handle(item.id)}
+                onKeyDown={(e) => {
+                  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                  e.preventDefault();
+                  reorder(shiftKeys(ids, on ? picked : new Set([item.id]), e.key === "ArrowUp" ? -1 : 1));
+                }}
+              >
+                <GripVertical size={16} />
+              </button>
+              <input
+                type="checkbox"
+                className="pick"
+                checked={on}
+                onChange={() => {}}
+                onClick={(e) => toggle(item.id, !on, e.shiftKey)}
+                aria-label={`Select ${item.title || item.track.title}`}
+              />
               <span className="num">{i + 1}</span>
               <div style={{ minWidth: 0 }}>
                 <div className="title truncate">{item.title || item.track.title}</div>
                 <div className="sub">
                   <span>{duration(span)}</span>
+                  <span className="tabular">{mb(itemBytes(item, p.use_optimized))}</span>
                   {item.start_ms !== null && <span className="pill">from {clock(item.start_ms)}</span>}
                   {item.uploaded && <span className="pill sage">uploaded</span>}
                   {item.track.has_optimized && p.use_optimized && <span className="pill">{item.track.optimized_bitrate_kbps}k</span>}
@@ -141,14 +278,15 @@ export default function PlaylistDetail() {
                 >
                   Play
                 </Button>
-                <Button size="sm" variant="ghost" iconOnly icon={<ArrowUp size={14} />} disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up" />
-                <Button size="sm" variant="ghost" iconOnly icon={<ArrowDown size={14} />} disabled={i === ids.length - 1} onClick={() => move(i, 1)} aria-label="Move down" />
-                <Button size="sm" variant="danger" iconOnly icon={<Trash2 size={14} />} onClick={() => save.mutate({ item_ids: ids.filter((x) => x !== item.id) })} aria-label="Remove" />
+                <Button className="row-arrow" size="sm" variant="ghost" iconOnly icon={<ArrowUp size={14} />} disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up" />
+                <Button className="row-arrow" size="sm" variant="ghost" iconOnly icon={<ArrowDown size={14} />} disabled={i === ids.length - 1} onClick={() => move(i, 1)} aria-label="Move down" />
+                <Button size="sm" variant="danger" iconOnly icon={<Trash2 size={14} />} onClick={() => remove(new Set([item.id]))} aria-label="Remove" />
               </div>
             </div>
           );
         })}
       </div>
+      {!ids.length && <Note tone="info">This card is empty. Use Add tracks to put something on it.</Note>}
     </>
   );
 }

@@ -2875,3 +2875,132 @@ code {
   background: var(--paper-hover);
   cursor: pointer;
 }
+
+/* ───────── Reorderable lists (drag a grip, or tick rows and move them together) ───────── */
+
+.list-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 26px 0 8px;
+  padding: 8px 12px 8px 16px;
+  min-height: 48px;
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}
+
+.list-toolbar.active {
+  background: var(--terracotta-soft);
+  border-color: transparent;
+}
+
+.list-toolbar .check {
+  font-weight: 500;
+  min-width: 0;
+}
+
+.sortable .list-row {
+  position: relative;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding-left: 6px;
+}
+
+.sortable .list-row.selected {
+  background: var(--terracotta-soft);
+}
+
+.sortable .list-row .pick {
+  accent-color: var(--terracotta);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.grip {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-faint);
+  cursor: grab;
+  touch-action: none;
+}
+
+.grip:hover {
+  color: var(--ink-soft);
+  background: var(--paper-sunk);
+}
+
+.grip:focus-visible {
+  outline: 2px solid var(--terracotta);
+  outline-offset: 1px;
+}
+
+.sortable.is-dragging,
+.sortable.is-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.list-row.sort-moving {
+  opacity: 0.4;
+}
+
+.list-row.drop-before::before,
+.list-row.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--terracotta);
+  pointer-events: none;
+}
+
+.list-row.drop-before::before {
+  top: -1px;
+}
+
+.list-row.drop-after::after {
+  bottom: -1px;
+}
+
+.picker-total {
+  margin-right: auto;
+  align-self: center;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.picker-total strong {
+  color: var(--ink);
+}
+
+.picker-total strong.over {
+  color: var(--berry);
+}
+
+/* On a phone the grip and the selection bar do the moving, so the titles get the room. */
+@media (max-width: 640px) {
+  .sortable .list-row {
+    gap: 8px;
+    padding-right: 10px;
+  }
+  .sortable .list-row .num {
+    width: auto;
+  }
+  .sortable .row-arrow {
+    display: none;
+  }
+  .sortable .list-row .actions {
+    gap: 2px;
+  }
+}

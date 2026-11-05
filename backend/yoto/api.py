@@ -9,7 +9,8 @@ from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
-from core.api import JobOut, PackIn, TrackOut, card_summary, pack_limits, run_pack
+from core import packing
+from core.api import JobOut, PackIn, TrackOut, build_groups, card_summary, pack_limits, run_pack
 from core.jobs import active_job, enqueue
 from core.models import Job
 
@@ -313,9 +314,20 @@ def update_playlist(request, pid: int, payload: PlaylistPatch):
                     item.position = n
                     item.save(update_fields=["position"])
         if payload.add_track_ids:
+            # Added tracks go on the end, cut into parts like the planner does when they break Yoto's per-track limits.
+            [group] = build_groups([{"track_ids": payload.add_track_ids}], None, playlist.use_optimized)
+            limits = packing.Limits()
             start = playlist.items.count()
-            for n, tid in enumerate(payload.add_track_ids):
-                PlaylistItem.objects.create(playlist=playlist, track_id=tid, position=start + n)
+            parts = [p for i in group.items for p in packing.split_long(i, limits)]
+            for n, item in enumerate(parts):
+                PlaylistItem.objects.create(
+                    playlist=playlist,
+                    track_id=item.track_id,
+                    position=start + n,
+                    start_ms=item.start_ms,
+                    end_ms=item.end_ms,
+                    title=item.title[:300] if item.custom_title else "",
+                )
     services.mark_changed(playlist)
     return with_totals(playlist)
 

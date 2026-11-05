@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Clock, CornerDownRight, HardDrive, SquareStack, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Clock, CornerDownRight, GripVertical, HardDrive, SquareStack, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { bytes, duration } from "../format";
+import { useDragSort } from "../hooks/dragSort";
 import { useAction } from "../hooks/queries";
 import type { PackGroup, PackPreview, PackStrategy, Playlist, SettingsData } from "../types";
 import { BitratePicker } from "./Tools";
@@ -88,6 +89,8 @@ export function PackResult({ preview, name = "" }: { preview: PackPreview; name?
   );
 }
 
+const NONE = new Set<string>();
+
 function SourceOrder({ order, onChange }: { order: PackGroup[]; onChange: (next: PackGroup[]) => void }) {
   const move = (from: number, to: number) => {
     const next = [...order];
@@ -95,10 +98,16 @@ function SourceOrder({ order, onChange }: { order: PackGroup[]; onChange: (next:
     next.splice(to, 0, g);
     onChange(next);
   };
+  const keys = order.map((g) => g.key);
+  const byKey = new Map(order.map((g) => [g.key, g]));
+  const { listRef, handle, rowClass, dragging } = useDragSort(keys, NONE, (next) => onChange(next.map((k) => byKey.get(k)!)));
   return (
-    <div className="list">
+    <div className={`list sortable ${dragging ? "is-dragging" : ""}`} ref={listRef}>
       {order.map((g, i) => (
-        <div key={g.key} className="list-row" style={{ gridTemplateColumns: "auto 1fr auto" }}>
+        <div key={g.key} data-sort-row className={`list-row ${rowClass(g.key, i)}`} style={{ gridTemplateColumns: "auto auto 1fr auto" }}>
+          <button type="button" className="grip" aria-label={`Drag ${g.title} to reorder`} title="Drag to reorder" {...handle(g.key)}>
+            <GripVertical size={16} />
+          </button>
           <span className="num tabular">{i + 1}</span>
           <div style={{ minWidth: 0 }}>
             <div className="title truncate">{g.title}</div>

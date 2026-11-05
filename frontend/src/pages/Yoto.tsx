@@ -232,7 +232,10 @@ function bookBlocks(books: Book[]): BookBlock[] {
   return blocks.sort((a, b) => natural(a.name, b.name));
 }
 
-function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (groups: PackGroup[]) => void }) {
+/** Adding to a card that already exists: what it's called and how much room it has left. */
+export type PickTarget = { title: string; freeBytes: number };
+
+export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void; onPicked: (groups: PackGroup[]) => void | Promise<void>; addTo?: PickTarget }) {
   const books = useQuery({ queryKey: ["books"], queryFn: () => api.get<Book[]>("/audible/books") });
   const podcasts = useQuery({ queryKey: ["podcasts"], queryFn: () => api.get<Podcast[]>("/podcasts") });
   const folders = useQuery({ queryKey: ["collections"], queryFn: () => api.get<Collection[]>("/local/collections") });
@@ -295,7 +298,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
           return { key, title: folders.data!.find((c) => String(c.id) === id)!.name, track_ids: tracks.map((t) => t.id) };
         }),
       );
-      onPicked(groups.filter((g): g is PackGroup => !!g));
+      await onPicked(groups.filter((g): g is PackGroup => !!g));
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -317,29 +320,44 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
   );
   const bookSub = (b: Book, inSeries: boolean) =>
     [inSeries && b.series_position ? `Book ${b.series_position}` : "", b.authors, `${b.track_count} chapters`, duration(b.runtime_min * 60000), mb(b.size_bytes)].filter(Boolean).join(" · ");
-  // Size of every ticked source, so you can see how they'll group against a card's 500 MB.
+  // Size and length of every ticked source, so you can see how they'll group against a card's limits.
   const sizeOf = new Map<string, number>([
     ...readyBooks.map((b) => [`book:${b.id}`, b.size_bytes] as const),
     ...(podcasts.data ?? []).flatMap((p) => savedSeasons(p).map((s) => [s.key, s.downloaded_bytes] as const)),
     ...(folders.data ?? []).map((c) => [`folder:${c.id}`, c.current_bytes] as const),
   ]);
+  const lengthOf = new Map<string, number>([
+    ...readyBooks.map((b) => [`book:${b.id}`, b.runtime_min * 60000] as const),
+    ...(podcasts.data ?? []).flatMap((p) => savedSeasons(p).map((s) => [s.key, s.downloaded_duration_ms] as const)),
+    ...(folders.data ?? []).map((c) => [`folder:${c.id}`, c.total_duration_ms] as const),
+  ]);
   const chosenBytes = [...chosen].reduce((a, k) => a + (sizeOf.get(k) ?? 0), 0);
+  const chosenMs = [...chosen].reduce((a, k) => a + (lengthOf.get(k) ?? 0), 0);
+  const tooBig = !!addTo && chosenBytes > addTo.freeBytes;
+  const count = `${chosen.size || ""} source${chosen.size === 1 ? "" : "s"}`;
 
   return (
     <Modal
       wide
-      title="What should go on the cards?"
+      title={addTo ? `Add to “${addTo.title}”` : "What should go on the cards?"}
       onClose={onClose}
       footer={
         <>
-          {chosen.size > 0 && (
-            <span className="muted tabular" style={{ marginRight: "auto", alignSelf: "center", fontSize: "var(--text-sm)" }}>
-              Selected: {mb(chosenBytes)}
-            </span>
-          )}
+          <span className="picker-total tabular" role="status" aria-live="polite">
+            {chosen.size ? (
+              <>
+                <strong className={tooBig ? "over" : undefined}>{mb(chosenBytes)}</strong> selected · {duration(chosenMs)}
+                {addTo && <> · {mb(Math.max(0, addTo.freeBytes))} free on this card</>}
+              </>
+            ) : addTo ? (
+              `${mb(Math.max(0, addTo.freeBytes))} free on this card`
+            ) : (
+              "Nothing selected yet"
+            )}
+          </span>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="primary" disabled={!chosen.size} loading={busy} onClick={build}>
-            Plan {chosen.size || ""} source{chosen.size === 1 ? "" : "s"}
+            {addTo ? `Add ${count}` : `Plan ${count}`}
           </Button>
         </>
       }
@@ -351,8 +369,9 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
       ) : (
         <div className="stack" style={{ "--gap": "18px" } as React.CSSProperties}>
           <p className="muted">
-            Only audio that's already converted or downloaded can go on a card. Pick several (a whole series, or a few seasons of a show) and they'll play back to back
-            on as few cards as possible.
+            {addTo
+              ? "Only audio that's already converted or downloaded can go on a card. What you pick goes on the end of this card, in the order shown; you can rearrange it afterwards."
+              : "Only audio that's already converted or downloaded can go on a card. Pick several (a whole series, or a few seasons of a show) and they'll play back to back on as few cards as possible."}
           </p>
           <div className="search">
             <Search size={17} />
