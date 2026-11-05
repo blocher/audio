@@ -216,3 +216,30 @@ def transcribe_file(
         with ThreadPoolExecutor(max_workers=2 if provider == "groq" else 3) as pool:
             results = list(pool.map(work, starts))
     return provider, model, [s for chunk in results for s in chunk]
+
+
+DICTATION_MAX_MS = 5 * 60 * 1000
+
+
+def transcribe_clip(path: Path, hint: str = "") -> str:
+    """A spoken question, recorded in the browser (webm/opus or mp4/aac), as plain text.
+
+    Uses the default transcription model. ``hint`` (the book's title, say) goes to Whisper-style models as a prompt,
+    which helps them spell names from the book.
+    """
+    provider, model = ai.resolve("stt", None, None)
+    with tempfile.TemporaryDirectory() as tmp:
+        clip = Path(tmp) / "clip.mp3"
+        audio.run_ffmpeg(
+            ["-i", str(path), "-t", str(DICTATION_MAX_MS // 1000), "-vn", "-ac", "1", "-ar", "16000",
+             "-c:a", "libmp3lame", "-b:a", "32k", str(clip)]
+        )  # fmt: skip
+        length_ms = audio.ffprobe(clip).duration_ms
+        if provider == "gemini":
+            segments = transcribe_chunk(provider, model, clip, length_ms)
+            return " ".join(s["text"] for s in segments).strip()
+        client = ai.openai_client(provider, timeout=60)
+        with clip.open("rb") as fh:
+            extra = {"prompt": hint[:400]} if hint else {}
+            result = client.audio.transcriptions.create(model=model, file=fh, response_format="json", **extra)
+        return (getattr(result, "text", "") or "").strip()

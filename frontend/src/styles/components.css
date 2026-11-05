@@ -547,7 +547,7 @@ input[type="range"] {
 .cover-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 8px;
   margin: -8px;
   border-radius: var(--radius-lg);
@@ -560,6 +560,86 @@ input[type="range"] {
   background: var(--paper-raised);
   border-color: var(--paper-edge);
 }
+
+/* Phones: two covers a row rather than one screen-wide cover at a time. */
+@media (max-width: 520px) {
+  .cover-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 14px;
+  }
+}
+
+.cover-card-link {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: inherit;
+}
+
+/* Under each book: straight to Ask, or one tap to make it askable. */
+.card-ask {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  margin-top: auto;
+  border-radius: 999px;
+  border: 1px solid var(--paper-edge);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.card-ask.ask {
+  border-color: transparent;
+  background: var(--terracotta-soft);
+  color: var(--terracotta-strong);
+}
+
+.card-ask.ask:hover {
+  background: var(--terracotta);
+  color: #fff;
+}
+
+.card-ask.make {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--sage) 55%, transparent);
+  color: var(--sage-strong);
+}
+
+.card-ask.make:hover {
+  border-style: solid;
+  background: var(--sage-soft);
+}
+
+.card-ask.working {
+  cursor: default;
+  color: var(--sage-strong);
+  background: var(--paper-sunk);
+  border-color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-ask.working > * {
+  position: relative;
+}
+
+.card-ask-fill {
+  position: absolute !important;
+  inset: 0 auto 0 0;
+  background: var(--sage-soft);
+  transition: width 0.6s var(--ease);
+}
+
 
 .cover {
   position: relative;
@@ -1437,6 +1517,7 @@ mark {
 .chat-log {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -1449,6 +1530,7 @@ mark {
   border-radius: 14px;
   line-height: 1.6;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .bubble.user {
@@ -1456,6 +1538,10 @@ mark {
   background: var(--terracotta);
   color: #fff8f1;
   border-bottom-right-radius: 4px;
+}
+
+.bubble.user .bubble-meta {
+  color: rgb(255 248 241 / 0.7);
 }
 
 .bubble.assistant {
@@ -1476,6 +1562,7 @@ mark {
 .bubble .cite {
   display: inline-flex;
   align-items: center;
+  gap: 3px;
   padding: 0 6px;
   margin: 0 1px;
   border-radius: 5px;
@@ -1485,6 +1572,7 @@ mark {
   font-weight: 600;
   border: 0;
   font-variant-numeric: tabular-nums;
+  vertical-align: 0.05em;
 }
 
 .bubble .cite:hover {
@@ -1498,40 +1586,157 @@ mark {
   margin-top: 4px;
 }
 
-.chat-input {
+/* Three dots while the answer is on its way. */
+.bubble.typing {
+  display: flex;
+  gap: 5px;
+  padding: 16px 18px;
+}
+
+.bubble.typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  animation: typing 1.2s infinite ease-in-out;
+}
+
+.bubble.typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.bubble.typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.ask-empty {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.ask-empty .empty {
+  padding: 28px 12px 4px;
+  border: 0;
+}
+
+.ask-suggest {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 14px;
+  justify-content: center;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.ask-suggest .chip,
+.compose-suggest .chip {
+  height: auto;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--paper-edge);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.chat-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
   border-top: 1px solid var(--paper-line);
   background: var(--paper);
 }
 
-.chat-input .input {
-  height: 46px;
-  flex: 1;
+.chat-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
 }
 
-/* The fixed no-spoiler warning sent in front of the question: shown, never editable. */
+.chat-input-row .btn.icon {
+  width: 46px;
+  height: 46px;
+  flex: none;
+}
+
+.chat-textarea {
+  flex: 1;
+  height: 46px;
+  min-height: 46px;
+  padding: 11px 14px;
+  line-height: 1.45;
+  resize: none;
+  font: inherit;
+}
+
+/* The fixed no-spoiler warning sent ahead of the question: folded to one line, readable on demand, never editable. */
 .ask-prefix {
-  flex-basis: 100%;
-  display: flex;
-  gap: 6px;
-  max-height: 7.5em;
-  overflow-y: auto;
-  padding: 8px 10px;
-  border: 1px dashed var(--paper-line);
-  border-radius: 8px;
+  border: 1px dashed var(--paper-edge);
+  border-radius: 10px;
   font-size: var(--text-xs);
-  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.ask-prefix summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ask-prefix summary::-webkit-details-marker {
+  display: none;
+}
+
+.ask-prefix summary > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.ask-prefix summary b {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.ask-prefix .chev {
+  flex: none;
+  transition: transform 0.15s var(--ease);
+}
+
+.ask-prefix[open] .chev {
+  transform: rotate(180deg);
+}
+
+.ask-prefix p {
+  margin: 0;
+  padding: 0 12px 10px 29px;
+  max-height: 38vh;
+  overflow-y: auto;
   white-space: pre-wrap;
+  line-height: 1.55;
   color: var(--ink-faint);
   cursor: not-allowed;
-}
-
-.ask-prefix svg {
-  flex: none;
-  margin-top: 2px;
 }
 
 .horizon {
@@ -1543,7 +1748,8 @@ mark {
   gap: 8px;
 }
 
-.horizon input[type="range"] {
+.horizon input[type="range"],
+.horizon-range {
   width: 100%;
 }
 
@@ -1571,7 +1777,8 @@ mark {
   align-items: start;
 }
 
-.ask-convos {
+.ask-convos,
+.ask-convo-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1593,6 +1800,20 @@ mark {
   background: var(--paper-sunk);
 }
 
+.ask-convo-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+  line-height: 1.3;
+}
+
+.ask-convo-text small {
+  color: var(--ink-faint);
+  font-size: var(--text-xs);
+}
+
 @media (max-width: 900px) {
   .ask-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1601,19 +1822,21 @@ mark {
   /* Conversations become a swipeable strip above the chat. */
   .ask-convos {
     order: -1;
+  }
+  .ask-convos .ask-convo-list {
     flex-direction: row;
     overflow-x: auto;
     scrollbar-width: none;
     margin: 0 calc(-1 * var(--gutter));
     padding: 0 var(--gutter);
   }
-  .ask-convos::-webkit-scrollbar {
+  .ask-convos .ask-convo-list::-webkit-scrollbar {
     display: none;
   }
-  .ask-convos > * {
+  .ask-convos .ask-convo-list > * {
     flex: none;
   }
-  .ask-convo {
+  .ask-convos .ask-convo {
     max-width: 220px;
     border: 1px solid var(--paper-line);
   }
@@ -1639,7 +1862,7 @@ mark {
     padding: 10px;
   }
   /* The keyboard already takes half the screen while typing a question. */
-  body:has(.chat-input input:focus) .player {
+  body:has(.chat-input textarea:focus) .player {
     display: none;
   }
   /* iOS zooms the page when a focused field is under 16px. */
@@ -1648,6 +1871,609 @@ mark {
   .textarea {
     font-size: 16px !important;
   }
+}
+
+/* ───────── Ask on a phone: its own screen ───────── */
+
+.round-btn {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.round-btn:active {
+  transform: scale(0.94);
+}
+
+.round-btn.ghost:active,
+.round-btn.ghost:hover {
+  background: var(--paper-sunk);
+}
+
+.round-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.round-btn.mic {
+  background: var(--terracotta-soft);
+  color: var(--terracotta-strong);
+}
+
+.round-btn.stop {
+  width: 52px;
+  height: 52px;
+  background: var(--terracotta);
+  color: #fff;
+  animation: mic-pulse 1.5s infinite;
+}
+
+@keyframes mic-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(167 82 54 / 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgb(167 82 54 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(167 82 54 / 0);
+  }
+}
+
+.round-btn .badge {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--terracotta);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.ask-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  padding-top: var(--safe-top);
+  animation: ask-in 0.22s var(--ease);
+}
+
+@keyframes ask-in {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+}
+
+/* Ask brings its own small player; the full bar would sit on top of the question box. */
+body:has(.ask-screen) .player,
+body:has(.ask-screen) .menu-btn {
+  display: none;
+}
+
+.ask-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: 6px max(6px, var(--safe-right)) 6px max(6px, var(--safe-left));
+  border-bottom: 1px solid var(--paper-line);
+  background: var(--paper-raised);
+}
+
+.ask-bar-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 4px;
+  line-height: 1.2;
+}
+
+.ask-bar-title small {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.ask-bar-title b {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.ask-scope {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  margin: 10px 12px 0;
+  padding: 8px 12px 8px 12px;
+  border: 1px solid var(--paper-edge);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 550;
+  box-shadow: var(--shadow-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ask-scope > svg:first-child {
+  flex: none;
+  color: var(--terracotta);
+}
+
+.ask-scope > svg:last-child {
+  flex: none;
+}
+
+.ask-scope.whole {
+  background: var(--honey-soft);
+  border-color: color-mix(in srgb, var(--honey) 40%, transparent);
+  color: var(--honey-ink);
+}
+
+.ask-scope.whole > svg:first-child {
+  color: var(--honey);
+}
+
+.ask-screen .chat-log {
+  padding: 18px max(16px, var(--safe-right)) 24px max(16px, var(--safe-left));
+  gap: 16px;
+}
+
+.ask-screen .bubble {
+  max-width: 86%;
+  font-size: 1rem;
+}
+
+/* Answers read like a page of the book, not a chat bubble. */
+.ask-screen .bubble.assistant {
+  max-width: 100%;
+  padding: 2px 2px;
+  border: 0;
+  background: none;
+  font-size: 1.0625rem;
+  line-height: 1.68;
+}
+
+.ask-screen .bubble.assistant.typing {
+  padding: 10px 2px;
+}
+
+.ask-screen .bubble .cite {
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.ask-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px max(12px, var(--safe-right)) calc(10px + var(--safe-bottom)) max(12px, var(--safe-left));
+  border-top: 1px solid var(--paper-line);
+  background: color-mix(in srgb, var(--paper-raised) 94%, transparent);
+  backdrop-filter: blur(14px) saturate(1.1);
+}
+
+.ask-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ask-pill {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 50px;
+  padding: 0 20px;
+  border: 1.5px solid var(--paper-edge);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: text;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ask-pill:active {
+  border-color: var(--terracotta);
+}
+
+.ask-pill .ink {
+  color: var(--ink);
+}
+
+.ask-trigger .round-btn.mic {
+  width: 50px;
+  height: 50px;
+}
+
+/* A stand-in field focused during the tap so iOS raises the keyboard for the composer. */
+.kbd-primer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.ask-mini {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 8px;
+  border-radius: 12px;
+  background: var(--paper-sunk);
+  overflow: hidden;
+}
+
+.ask-mini img,
+.ask-mini .art {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--paper-edge);
+}
+
+.ask-mini-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+  line-height: 1.25;
+}
+
+.ask-mini-text span {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.ask-mini button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-soft);
+}
+
+.ask-mini button.play {
+  background: var(--terracotta);
+  color: #fff;
+}
+
+.ask-mini-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--terracotta);
+}
+
+/* Full-page composer: the whole screen for the question, Send and the mic always above the keyboard. */
+.compose {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100dvh;
+  z-index: 57;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-top);
+  background: var(--paper-raised);
+  animation: ask-in 0.18s var(--ease);
+}
+
+.compose-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  min-height: 56px;
+  padding: 6px max(12px, var(--safe-right)) 6px max(8px, var(--safe-left));
+}
+
+.compose-cancel {
+  justify-self: start;
+  padding: 10px 8px;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.compose-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.compose-title b {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.compose-title small {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.compose-send {
+  justify-self: end;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--terracotta);
+  color: #fff;
+  box-shadow: 0 4px 12px rgb(167 82 54 / 0.3);
+  transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+
+.compose-send:active {
+  transform: scale(0.94);
+}
+
+.compose-send:disabled {
+  background: var(--paper-edge);
+  color: var(--ink-faint);
+  box-shadow: none;
+}
+
+.compose-prefix {
+  padding: 0 max(16px, var(--safe-right)) 4px max(16px, var(--safe-left));
+}
+
+.compose-text {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 14px max(20px, var(--safe-right)) 14px max(20px, var(--safe-left));
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  line-height: 1.45;
+}
+
+.compose-text::placeholder {
+  color: var(--ink-faint);
+}
+
+.compose-suggest {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 16px 12px;
+  scrollbar-width: none;
+}
+
+.compose-suggest::-webkit-scrollbar {
+  display: none;
+}
+
+.compose-suggest .chip {
+  flex: none;
+  white-space: nowrap;
+}
+
+.compose-tools {
+  flex: none;
+  padding: 10px max(14px, var(--safe-right)) calc(10px + var(--safe-bottom)) max(14px, var(--safe-left));
+  border-top: 1px solid var(--paper-line);
+  background: var(--paper);
+}
+
+.compose-mic-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  font-size: var(--text-sm);
+}
+
+.compose-mic-row .round-btn.mic {
+  width: 52px;
+  height: 52px;
+}
+
+.dictation-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  font-size: var(--text-sm);
+}
+
+.dictation-strip .level-bars {
+  flex: 1;
+}
+
+.level-bars {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 34px;
+}
+
+.level-bars span {
+  flex: 1;
+  max-width: 6px;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--terracotta);
+  transform: scaleY(0.12);
+  transition: transform 0.08s linear;
+}
+
+.dictation-time {
+  min-width: 3em;
+  text-align: right;
+  font-weight: 650;
+  color: var(--terracotta-strong);
+}
+
+.dictation-error {
+  padding: 2px 2px 8px;
+  font-size: var(--text-sm);
+  color: var(--berry);
+}
+
+/* Bottom sheets for conversations and options. */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  display: flex;
+  align-items: flex-end;
+  background: rgb(28 16 10 / 0.4);
+  animation: fade 0.18s;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 84dvh;
+  padding-bottom: var(--safe-bottom);
+  border-radius: 20px 20px 0 0;
+  background: var(--paper-raised);
+  box-shadow: var(--shadow-lg);
+  animation: sheet-in 0.26s var(--ease);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+.sheet-grip {
+  width: 40px;
+  height: 5px;
+  margin: 8px auto 0;
+  border-radius: 3px;
+  background: var(--paper-edge);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px 2px 20px;
+}
+
+.sheet-head h3 {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+
+.sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 16px 18px;
+}
+
+.sheet .ask-convo-list > .btn {
+  height: 48px;
+  margin-bottom: 4px;
+}
+
+.sheet .ask-convo {
+  padding: 10px 6px 10px 14px;
+  border-radius: 12px;
+}
+
+.sheet .ask-convo-text {
+  font-size: 1rem;
+}
+
+.ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ask-options .segmented {
+  display: flex;
+}
+
+.ask-options .segmented button {
+  flex: 1;
+  height: 44px;
+  font-size: var(--text-md);
+}
+
+.ask-options .horizon-note {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.ask-options .horizon-note > svg {
+  margin-top: 3px;
+}
+
+.ask-options .horizon-note > span:not(.spacer) {
+  flex: 1 1 200px;
+}
+
+.ask-options .horizon-range {
+  height: 32px;
 }
 
 /* ───────── Dropzone ───────── */

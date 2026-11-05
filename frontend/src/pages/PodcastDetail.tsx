@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import CardPlanner from "../components/CardPlanner";
-import { AskPanel, TranscriptView } from "../components/Listen";
+import { AskPanel } from "../components/Ask";
+import { TranscriptView } from "../components/Listen";
 import { TrackStatus, queueFor } from "../components/TrackList";
 import { BitratePicker, DownsizeDialog, TranscribeDialog } from "../components/Tools";
 import { StarButton } from "../components/StarButton";
@@ -190,21 +191,21 @@ export default function PodcastDetail() {
       )}
       {episodeView && episodeView.episode.track && (
         <Modal wide title={episodeView.episode.title} onClose={() => setEpisodeView(null)}>
-          <EpisodeListen episode={episodeView.episode} mode={episodeView.mode} podcastTitle={p.title} cover={p.image_url} />
+          <EpisodeListen episode={episodeView.episode} mode={episodeView.mode} podcastTitle={p.title} cover={p.image_url} onClose={() => setEpisodeView(null)} />
         </Modal>
       )}
     </>
   );
 }
 
-function EpisodeListen({ episode, mode, podcastTitle, cover }: { episode: Episode; mode: "transcript" | "ask"; podcastTitle: string; cover: string }) {
+function EpisodeListen({ episode, mode, podcastTitle, cover, onClose }: { episode: Episode; mode: "transcript" | "ask"; podcastTitle: string; cover: string; onClose: () => void }) {
   const player = usePlayer();
   const queue = queueFor([episode.track!], { subtitle: podcastTitle, cover: episode.image_url || cover });
   const position = player.current?.trackId === episode.track!.id ? player.positionMs : episode.track!.duration_ms;
   return mode === "transcript" ? (
     <TranscriptView work={{ episode_id: episode.id }} queue={queue} positionMs={position} />
   ) : (
-    <AskPanel work={{ episode_id: episode.id }} queue={queue} totalMs={episode.track!.duration_ms} positionMs={position} title="this episode" />
+    <AskPanel work={{ episode_id: episode.id }} queue={queue} totalMs={episode.track!.duration_ms} positionMs={position} title="this episode" onClose={onClose} />
   );
 }
 

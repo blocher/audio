@@ -277,6 +277,51 @@ def convert(request, book_id: int, payload: ConvertIn):
     return enqueue("audible_convert", f"Convert {book.title}", convert_book_task, book.pk, kbps, mono, target=book)
 
 
+class AskableIn(Schema):
+    provider: str | None = None
+    model: str | None = None
+
+
+@router.post("/books/{book_id}/askable", response=JobOut)
+def make_askable(request, book_id: int, payload: AskableIn):
+    """Convert at the default bitrate (when the book isn't already in it) and transcribe with the default model."""
+    from core import ai
+    from transcripts.models import Transcript
+
+    from .tasks import make_askable_task
+
+    book = get_object_or_404(Book.objects.select_related("account"), pk=book_id)
+    for kind in ("audible_askable", "audible_convert", "transcribe"):
+        if job := active_job(book, kind):
+            return job
+    try:
+        provider, model = ai.resolve("stt", payload.provider, payload.model)
+    except RuntimeError as exc:
+        raise HttpError(400, str(exc)) from exc
+    prefs = preferences()
+    kbps, mono = int(prefs["default_kbps"]), bool(prefs["default_mono"])
+    tracks = book.tracks.exclude(file="")
+    transcribed = tracks.filter(transcript__status=Transcript.Status.READY).count()
+    # Re-converting replaces the tracks and with them any transcripts, so only redo a conversion nothing depends on.
+    in_default = tracks.exists() and (book.convert_kbps, book.convert_mono) == (kbps, mono)
+    convert = not tracks.exists() or (not in_default and transcribed == 0)
+    if not convert and transcribed == tracks.count():
+        raise HttpError(400, "This book is already transcribed; ask away")
+    if convert and services.download_account(book) is None:
+        raise HttpError(400, f"{book.account.name}'s Audible account needs reconnecting")
+    return enqueue(
+        "audible_askable",
+        f"Make {book.title} askable",
+        make_askable_task,
+        book.pk,
+        kbps if convert else None,
+        mono,
+        provider,
+        model,
+        target=book,
+    )
+
+
 @router.post("/books/{book_id}/position", response=BookOut)
 def refresh_position(request, book_id: int):
     book = get_object_or_404(Book, pk=book_id)

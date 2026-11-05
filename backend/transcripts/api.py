@@ -1,9 +1,11 @@
 import json
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
-from ninja import Field, Router, Schema
+from ninja import Field, File, Form, Router, Schema, UploadedFile
 from ninja.errors import HttpError
 
 from core import ai
@@ -173,6 +175,23 @@ def get_conversation(request, cid: int):
 def delete_conversation(request, cid: int):
     get_object_or_404(mine(request), pk=cid).delete()
     return {"ok": True}
+
+
+@router.post("/dictate")
+def dictate(request, audio: UploadedFile = File(...), hint: str = Form("")):  # noqa: B008 - Ninja form params
+    """Speech to text for the Ask box: a short recording in, the words out (default transcription model)."""
+    if audio.size > 25 * 1024 * 1024:
+        raise HttpError(400, "That recording is too long; keep questions under a few minutes")
+    suffix = Path(audio.name or "").suffix or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix) as fh:
+        for chunk in audio.chunks():
+            fh.write(chunk)
+        fh.flush()
+        try:
+            text = stt.transcribe_clip(Path(fh.name), hint.strip())
+        except RuntimeError as exc:
+            raise HttpError(400, str(exc)) from exc
+    return {"text": text}
 
 
 @router.get("/ask/grounding")

@@ -7,6 +7,7 @@ import { bytes, duration } from "../format";
 import { useStars, type StarKind } from "../hooks/stars";
 import { usePlayer } from "../player";
 import type { Book, Collection, Playlist, Podcast } from "../types";
+import { CardAskFooter } from "./Askable";
 import { StarButton } from "./StarButton";
 import { Button, Cover, Meter, Progress, SourceIcon, Spinner } from "./ui";
 
@@ -29,6 +30,8 @@ export interface LibraryItem {
   sortDate: string;
   /** When the signed-in user starred it; undefined when they haven't. */
   starredAt?: string;
+  /** Books only: what the Ask footer needs. */
+  book?: Pick<Book, "id" | "track_count" | "transcribed_count">;
 }
 
 /** Every book, podcast and folder as one list of cards, with the signed-in user's stars. */
@@ -67,6 +70,7 @@ export function useLibraryItems() {
         inProgress: b.percent_complete > 0 && !b.is_finished,
         finished: b.is_finished,
         sortDate: b.purchase_date ?? "",
+        book: { id: b.id, track_count: b.track_count, transcribed_count: b.transcribed_count },
       });
     for (const p of podcasts.data ?? [])
       out.push({
@@ -117,51 +121,54 @@ export function CoverGrid({ items }: { items: LibraryItem[] }) {
   return (
     <div className="cover-grid">
       {items.map((item) => (
-        <Link key={item.key} to={item.to} className="cover-card">
-          <div style={{ position: "relative" }}>
-            {item.kind === "folder" ? (
-              <div className="cover">
-                <div
-                  className="fallback"
-                  style={{
-                    background: "linear-gradient(150deg, var(--sage-soft), var(--paper-edge))",
-                  }}
-                >
-                  <Folder size={42} strokeWidth={1.3} />
+        <div key={item.key} className="cover-card">
+          <Link to={item.to} className="cover-card-link">
+            <div style={{ position: "relative" }}>
+              {item.kind === "folder" ? (
+                <div className="cover">
+                  <div
+                    className="fallback"
+                    style={{
+                      background: "linear-gradient(150deg, var(--sage-soft), var(--paper-edge))",
+                    }}
+                  >
+                    <Folder size={42} strokeWidth={1.3} />
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <Cover src={item.cover} title={item.title} />
-            )}
-            <StarButton kind={item.kind} id={item.id} title={item.title} overlay />
-            {item.ready && (
-              <span className="pill solid" style={{ position: "absolute", top: 8, right: 8 }}>
-                <CheckCircle2 size={12} /> MP3
-              </span>
-            )}
-          </div>
-          <div className="cover-title">{item.title}</div>
-          <div className="cover-meta">
-            {item.kind === "book" ? (
-              <SourceIcon kind="audible" />
-            ) : item.kind === "podcast" ? (
-              <Mic size={13} />
-            ) : (
-              <Folder size={13} />
-            )}
-            <span className="truncate">{item.kind === "book" ? item.by || item.source : item.source}</span>
-          </div>
-          {item.progress !== undefined && (
-            <div className="row" style={{ "--gap": "8px" } as React.CSSProperties}>
-              <div style={{ flex: 1 }}>
-                <Progress value={item.progress} />
-              </div>
-              <span className="muted tabular" style={{ fontSize: "var(--text-xs)" }}>
-                {item.kind === "book" ? `${Math.round((item.progress ?? 0) * 100)}%` : item.meta}
-              </span>
+              ) : (
+                <Cover src={item.cover} title={item.title} />
+              )}
+              <StarButton kind={item.kind} id={item.id} title={item.title} overlay />
+              {item.ready && (
+                <span className="pill solid" style={{ position: "absolute", top: 8, right: 8 }}>
+                  <CheckCircle2 size={12} /> MP3
+                </span>
+              )}
             </div>
-          )}
-        </Link>
+            <div className="cover-title">{item.title}</div>
+            <div className="cover-meta">
+              {item.kind === "book" ? (
+                <SourceIcon kind="audible" />
+              ) : item.kind === "podcast" ? (
+                <Mic size={13} />
+              ) : (
+                <Folder size={13} />
+              )}
+              <span className="truncate">{item.kind === "book" ? item.by || item.source : item.source}</span>
+            </div>
+            {item.progress !== undefined && (
+              <div className="row" style={{ "--gap": "8px" } as React.CSSProperties}>
+                <div style={{ flex: 1 }}>
+                  <Progress value={item.progress} />
+                </div>
+                <span className="muted tabular" style={{ fontSize: "var(--text-xs)" }}>
+                  {item.kind === "book" ? `${Math.round((item.progress ?? 0) * 100)}%` : item.meta}
+                </span>
+              </div>
+            )}
+          </Link>
+          {item.book && <CardAskFooter book={item.book} />}
+        </div>
       ))}
     </div>
   );

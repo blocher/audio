@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Download, FileText, ListMusic, MessageCircle, Minimize2, Play, RefreshCw, SquareStack, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import CardPlanner from "../components/CardPlanner";
-import { AskPanel, TranscriptView, useWorkPosition } from "../components/Listen";
+import { AskPanel } from "../components/Ask";
+import { MakeAskableButton, askState } from "../components/Askable";
+import { TranscriptView, useWorkPosition } from "../components/Listen";
 import TrackList, { queueFor } from "../components/TrackList";
 import { BitratePicker, DownsizeDialog, TranscribeDialog, usePresets } from "../components/Tools";
 import { StarButton } from "../components/StarButton";
@@ -22,7 +24,28 @@ export default function BookDetail() {
   const player = usePlayer();
   const book = useQuery({ queryKey: ["books", id], queryFn: () => api.get<BookDetailT>(`/audible/books/${id}`) });
   const job = useActiveJob("book", Number(id));
-  const [tab, setTab] = useState<Tab>("chapters");
+  // The tab lives in the URL so the library can link straight to Ask (?tab=ask) and back closes it on a phone.
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const tab: Tab = (["chapters", "transcript", "ask"] as const).find((t) => t === params.get("tab")) ?? "chapters";
+  const setTab = (next: Tab) => {
+    if (next === tab) return;
+    const p = new URLSearchParams(params);
+    if (next === "chapters") p.delete("tab");
+    else p.set("tab", next);
+    p.delete("ask");
+    setParams(p, { replace: next !== "ask", state: next === "ask" ? { askTab: true } : undefined });
+  };
+  // From the hero: on a phone Ask opens full screen; on a desktop, bring the tab into view.
+  const openAsk = () => {
+    setTab("ask");
+    requestAnimationFrame(() => document.querySelector(".tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const closeAsk = () => {
+    if ((location.state as { askTab?: boolean } | null)?.askTab) navigate(-1);
+    else setTab("chapters");
+  };
   const [dialog, setDialog] = useState<"convert" | "downsize" | "transcribe" | "yoto" | null>(null);
   const [openSummary, setOpenSummary] = useState(false);
   const refreshPosition = useAction(() => api.post(`/audible/books/${id}/position`), [["books", id]]);
@@ -129,16 +152,18 @@ export default function BookDetail() {
             <Progress value={b.is_finished ? 1 : b.position_ms / Math.max(totalMs, 1)} tone="terracotta" thick />
           </div>
 
-          <div className="row wrap">
+          <div className="row wrap hero-actions">
+            {!ready && <MakeAskableButton book={b} variant="primary" onAsk={openAsk} />}
             {ready ? (
               <Button variant="primary" size="lg" icon={<Play size={18} fill="currentColor" />} onClick={() => player.play(queue, resumeIndex, b.position_ms - (queue[resumeIndex]?.workOffsetMs ?? 0))}>
                 {b.position_ms ? "Resume" : "Play"}
               </Button>
             ) : (
-              <Button variant="primary" size="lg" icon={<Download size={18} />} onClick={() => setDialog("convert")} disabled={!!job}>
+              <Button size="lg" icon={<Download size={18} />} onClick={() => setDialog("convert")} disabled={!!job}>
                 Convert to MP3
               </Button>
             )}
+            {ready && <MakeAskableButton book={b} onAsk={openAsk} />}
             {ready && (
               <>
                 <Button icon={<SquareStack size={16} />} onClick={() => setDialog("yoto")}>
@@ -214,10 +239,17 @@ export default function BookDetail() {
             positionMs={askPosition}
             positionNote={askSource}
             title={b.title}
+            onClose={closeAsk}
           />
         ) : (
-          <Empty icon={<MessageCircle size={36} />} title="Transcribe to ask questions" action={ready ? <Button variant="primary" onClick={() => setDialog("transcribe")}>Transcribe</Button> : undefined}>
-            Claude answers from the transcript up to where you are in the book — never past it.
+          <Empty
+            icon={<MessageCircle size={36} />}
+            title={job ? "Getting it ready to ask" : "Make this book askable"}
+            action={<MakeAskableButton book={b} variant="primary" onAsk={openAsk} />}
+          >
+            {askState(b) === "none" && !ready
+              ? "One tap downloads it at your default quality and transcribes it with your default model. Then ask anything — answers only use what you've heard so far."
+              : "One tap transcribes it with your default model. Then ask anything — answers only use what you've heard so far."}
           </Empty>
         ))}
 
@@ -250,9 +282,11 @@ function ConvertDialog({ bookId, title, onClose, onStarted }: { bookId: number; 
   const toast = useToast();
   const presets = usePresets();
   const [kbps, setKbps] = useState<number | null>(null);
-  const [mono, setMono] = useState(true);
-  const effective = kbps ?? presets.data?.default_kbps ?? 64;
-  const run = useAction(() => api.post<Job>(`/audible/books/${bookId}/convert`, { kbps: effective, mono }), [["books"]]);
+  const [mono, setMono] = useState<boolean | null>(null);
+  // Until the presets load, send nothing and let the server use the saved default.
+  const effective = kbps ?? presets.data?.default_kbps ?? null;
+  const effectiveMono = mono ?? presets.data?.default_mono ?? true;
+  const run = useAction(() => api.post<Job>(`/audible/books/${bookId}/convert`, { kbps: effective, mono: mono ?? presets.data?.default_mono }), [["books"]]);
   return (
     <Modal
       title={`Convert “${title}”`}
@@ -278,7 +312,7 @@ function ConvertDialog({ bookId, title, onClose, onStarted }: { bookId: number; 
     >
       <div className="stack" style={{ "--gap": "16px" } as React.CSSProperties}>
         <p className="muted">Downloads the book from Audible, decrypts it with your account's key, and writes one MP3 per chapter.</p>
-        <BitratePicker kbps={effective} mono={mono} onChange={(k, m) => (setKbps(k), setMono(m))} />
+        <BitratePicker kbps={effective} mono={effectiveMono} onChange={(k, m) => (setKbps(k), setMono(m))} />
         <Note tone="info">For personal use with books you own. The original stays on the server so you can re-convert at another quality without downloading again.</Note>
       </div>
     </Modal>

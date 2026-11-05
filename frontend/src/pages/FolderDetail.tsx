@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import CardPlanner from "../components/CardPlanner";
-import { AskPanel, TranscriptView, useWorkPosition } from "../components/Listen";
+import { AskPanel } from "../components/Ask";
+import { TranscriptView, useWorkPosition } from "../components/Listen";
 import TrackList, { queueFor } from "../components/TrackList";
 import { StarButton } from "../components/StarButton";
 import { DownsizeDialog, TranscribeDialog } from "../components/Tools";
@@ -107,7 +108,7 @@ export default function FolderDetail() {
       {tab === "transcript" && <TranscriptView work={{ collection_id: c.id }} queue={queue} positionMs={position} />}
       {tab === "ask" &&
         (transcribed ? (
-          <AskPanel work={{ collection_id: c.id }} queue={queue} totalMs={c.total_duration_ms} positionMs={position} title={c.name} />
+          <AskPanel work={{ collection_id: c.id }} queue={queue} totalMs={c.total_duration_ms} positionMs={position} title={c.name} onClose={() => setTab("files")} />
         ) : (
           <Empty icon={<MessageCircle size={36} />} title="Transcribe to ask questions" />
         ))}

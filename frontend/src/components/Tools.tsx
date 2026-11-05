@@ -12,7 +12,7 @@ import { Button, Modal, Note, useToast, errorText } from "./ui";
 export function usePresets() {
   return useQuery({
     queryKey: ["presets"],
-    queryFn: () => api.get<{ default_kbps: number; presets: Preset[] }>("/audio/presets"),
+    queryFn: () => api.get<{ default_kbps: number; default_mono: boolean; presets: Preset[] }>("/audio/presets"),
     staleTime: Infinity,
   });
 }
@@ -60,7 +60,10 @@ export function DownsizeDialog({ tracks, onClose }: { tracks: Track[]; onClose: 
   const [kbps, setKbps] = useState<number | null>(null);
   const [mono, setMono] = useState(true);
   useEffect(() => {
-    if (kbps === null && presets.data) setKbps(presets.data.default_kbps);
+    if (kbps === null && presets.data) {
+      setKbps(presets.data.default_kbps);
+      setMono(presets.data.default_mono);
+    }
   }, [presets.data, kbps]);
   const withFiles = tracks.filter((t) => t.has_file);
   const totalMs = withFiles.reduce((a, t) => a + t.duration_ms, 0);

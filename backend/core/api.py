@@ -283,9 +283,12 @@ def optimize_tracks(request, payload: OptimizeIn):
 
 @router.get("/audio/presets")
 def bitrate_presets(request):
-    card = int(preferences()["card_limit_mb"]) * 1024 * 1024
+    prefs = preferences()
+    card = int(prefs["card_limit_mb"]) * 1024 * 1024
     return {
-        "default_kbps": audio.DEFAULT_KBPS,
+        # The saved preference, not the built-in default: dialogs preselect whatever Settings says.
+        "default_kbps": int(prefs["default_kbps"] or audio.DEFAULT_KBPS),
+        "default_mono": bool(prefs["default_mono"]),
         "presets": [
             {**p, "hours_per_card_mono": round(audio.hours_per_card(p["kbps"], card), 1)}
             for p in audio.BITRATE_PRESETS

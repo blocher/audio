@@ -33,7 +33,7 @@ The server already runs Postgres. Celery workers write job progress at the same 
 
 ## Decisions worth knowing
 
-**Bitrate.** MP3 at **64 kbps mono** is the default. It's clear for speech and fine for light music. 48 kbps is still good for audiobooks, and 32 kbps starts to sound thin. Mono doesn't make a file smaller at the same bitrate (the size is bitrate × time). It makes speech clearer at low bitrates, because every bit goes to one channel. Presets run from 32 to 128 kbps.
+**Bitrate.** MP3 at **64 kbps mono** is the built-in default; the one saved in Settings wins, and every bitrate picker starts on it. It's clear for speech and fine for light music. 48 kbps is still good for audiobooks, and 32 kbps starts to sound thin. Mono doesn't make a file smaller at the same bitrate (the size is bitrate × time). It makes speech clearer at low bitrates, because every bit goes to one channel. Presets run from 32 to 128 kbps.
 
 **Yoto's real limits.** Each card holds up to 100 tracks, 500 MB and **5 hours**. Each track can be at most 100 MB and **60 minutes**.
 - Yoto re-encodes every upload, so on long cards the 5-hour cap binds long before 500 MB does. Downsizing mostly speeds up uploads and saves disk space; it only fits more on a card when the source files are large.
@@ -45,7 +45,13 @@ The server already runs Postgres. Celery workers write job progress at the same 
 - **New card per source** also keeps order, but starts every book or show on a fresh card.
 - **Keep shows whole** splits each source into full cards and then bin-packs the leftovers (first-fit decreasing), so short shows can share a card.
 
-**Spoilers.** "Ask" sends Claude only the transcript before your position. That position is either the player's position or a slider. Each question also goes out behind a fixed warning (shown greyed out above the question box): anything about the work comes only from the transcript, general background (word meanings, history, the period) is allowed, and nothing may point toward what happens next. Answers cite `[h:mm:ss]` timestamps, and clicking one plays from that moment.
+**Spoilers.** "Ask" sends Claude only the transcript before your position. That position is either the player's position or a slider. Each question also goes out behind a fixed warning (folded to one line above the question box; tap it to read it): anything about the work comes only from the transcript, general background (word meanings, history, the period) is allowed, and nothing may point toward what happens next. Answers cite `[h:mm:ss]` timestamps, and clicking one plays from that moment.
+
+**Ask on a phone.** Below 860 px wide, Ask is its own full screen: a top bar (back, conversations, new chat), a chip showing the spoiler limit and model that opens a bottom sheet for them, the conversation, and a small player for jumping to cited moments. Tapping the question pill opens a full-page composer that stays above the keyboard (it follows `visualViewport`, since iOS doesn't resize the page); sending returns you to the conversation as the answer streams in. The composer and sheets live in `?ask=…`, so the back gesture closes them. Every library book card has an **Ask** footer, which links to `/books/:id?tab=ask`.
+
+**Asking by voice.** The mic records in the browser (webm/opus, or mp4 on Safari) and posts the clip to `/api/transcripts/dictate`. The clip is transcribed with the default transcription model, and the book's title goes along as a Whisper prompt so names come out spelled right.
+
+**Make askable.** One button on each book (and on its card) runs a single job: download and convert at the **default bitrate from Settings**, then transcribe every chapter with the default transcription model. A book already converted at another bitrate is converted again only when none of its chapters is transcribed, because re-converting replaces the tracks and their transcripts.
 
 **Audible.** Signing in takes two steps because Amazon has no web OAuth for third parties:
 1. Open Amazon's sign-in link and log in.
