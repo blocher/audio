@@ -21,6 +21,7 @@ class SeasonOut(Schema):
     episode_count: int
     downloaded_count: int
     downloaded_duration_ms: int
+    downloaded_bytes: int  # saved episodes at their current size: downsized where done, original otherwise
 
 
 class PodcastOut(Schema):
@@ -96,6 +97,12 @@ def season_summaries(podcast_ids: list[int]) -> dict[int, list[dict]]:
             episode_count=Count("id"),
             downloaded_count=Count("id", filter=Q(track__isnull=False)),
             downloaded_duration_ms=Sum("track__duration_ms"),
+            downloaded_bytes=Sum(
+                Case(
+                    When(track__optimized_size_bytes__gt=0, then=F("track__optimized_size_bytes")),
+                    default=F("track__size_bytes"),
+                )
+            ),
         )
     )
     out: dict[int, list[dict]] = {}
@@ -106,6 +113,7 @@ def season_summaries(podcast_ids: list[int]) -> dict[int, list[dict]]:
                 "episode_count": row["episode_count"],
                 "downloaded_count": row["downloaded_count"],
                 "downloaded_duration_ms": row["downloaded_duration_ms"] or 0,
+                "downloaded_bytes": row["downloaded_bytes"] or 0,
             }
         )
     for seasons in out.values():

@@ -2,7 +2,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Case, Count, F, Q, Sum, When
 from django.shortcuts import get_object_or_404
 from ninja import File, Form, Router, Schema, UploadedFile
 from ninja.errors import HttpError
@@ -26,6 +26,7 @@ class CollectionOut(Schema):
     created_at: datetime
     track_count: int = 0
     total_bytes: int = 0
+    current_bytes: int = 0  # downsized where done, original otherwise: what goes on a card
     total_duration_ms: int = 0
     mp3_count: int = 0
     transcribed_count: int = 0
@@ -48,6 +49,12 @@ def annotated():
     return Collection.objects.annotate(
         track_count=Count("tracks", distinct=True),
         total_bytes=Sum("tracks__size_bytes"),
+        current_bytes=Sum(
+            Case(
+                When(tracks__optimized_size_bytes__gt=0, then=F("tracks__optimized_size_bytes")),
+                default=F("tracks__size_bytes"),
+            )
+        ),
         total_duration_ms=Sum("tracks__duration_ms"),
         # Files that are, or have been downsized to, MP3.
         mp3_count=Count(
@@ -62,6 +69,7 @@ def annotated():
 def _one(pk: int):
     c = get_object_or_404(annotated(), pk=pk)
     c.total_bytes = c.total_bytes or 0
+    c.current_bytes = c.current_bytes or 0
     c.total_duration_ms = c.total_duration_ms or 0
     return c
 
@@ -71,6 +79,7 @@ def list_collections(request):
     rows = list(annotated())
     for c in rows:
         c.total_bytes = c.total_bytes or 0
+        c.current_bytes = c.current_bytes or 0
         c.total_duration_ms = c.total_duration_ms or 0
     return rows
 

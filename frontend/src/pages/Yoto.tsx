@@ -5,7 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import CardPlanner from "../components/CardPlanner";
 import { Button, Empty, Meter, Modal, Note, PageHead, Spinner, errorText, useToast } from "../components/ui";
-import { bytes, duration, relative } from "../format";
+import { bytes, duration, mb, relative } from "../format";
 import { useAction, useJobs } from "../hooks/queries";
 import type { Book, Collection, Job, PackGroup, Playlist, Podcast, PodcastDetail, SettingsData, Track, YotoAccount } from "../types";
 import { seasonGroups, seasonKey, seasonLabel } from "../seasons";
@@ -316,7 +316,14 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
     </label>
   );
   const bookSub = (b: Book, inSeries: boolean) =>
-    [inSeries && b.series_position ? `Book ${b.series_position}` : "", b.authors, `${b.track_count} chapters`, duration(b.runtime_min * 60000)].filter(Boolean).join(" · ");
+    [inSeries && b.series_position ? `Book ${b.series_position}` : "", b.authors, `${b.track_count} chapters`, duration(b.runtime_min * 60000), mb(b.size_bytes)].filter(Boolean).join(" · ");
+  // Size of every ticked source, so you can see how they'll group against a card's 500 MB.
+  const sizeOf = new Map<string, number>([
+    ...readyBooks.map((b) => [`book:${b.id}`, b.size_bytes] as const),
+    ...(podcasts.data ?? []).flatMap((p) => savedSeasons(p).map((s) => [s.key, s.downloaded_bytes] as const)),
+    ...(folders.data ?? []).map((c) => [`folder:${c.id}`, c.current_bytes] as const),
+  ]);
+  const chosenBytes = [...chosen].reduce((a, k) => a + (sizeOf.get(k) ?? 0), 0);
 
   return (
     <Modal
@@ -325,6 +332,11 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
       onClose={onClose}
       footer={
         <>
+          {chosen.size > 0 && (
+            <span className="muted tabular" style={{ marginRight: "auto", alignSelf: "center", fontSize: "var(--text-sm)" }}>
+              Selected: {mb(chosenBytes)}
+            </span>
+          )}
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="primary" disabled={!chosen.size} loading={busy} onClick={build}>
             Plan {chosen.size || ""} source{chosen.size === 1 ? "" : "s"}
@@ -376,7 +388,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
                         <div style={{ minWidth: 0 }}>
                           <div className="title truncate">{bl.series}</div>
                           <div className="sub">
-                            Whole series · {bl.books.length} books · {duration(hours)}
+                            Whole series · {bl.books.length} books · {duration(hours)} · {mb(bl.books.reduce((a, b) => a + b.size_bytes, 0))}
                           </div>
                         </div>
                       </label>
@@ -397,7 +409,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
                   if (seasons.length === 1) {
                     const s = seasons[0];
                     const which = p.seasons.length > 1 ? `${s.label} · ` : "";
-                    return row(s.key, <Mic size={16} />, p.title, `${which}${episodes(s.downloaded_count)} · ${bytes(p.downloaded_bytes)}`);
+                    return row(s.key, <Mic size={16} />, p.title, `${which}${episodes(s.downloaded_count)} · ${duration(s.downloaded_duration_ms)} · ${mb(s.downloaded_bytes)}`);
                   }
                   // Several seasons: like a book series, tick the whole show or just the seasons you want.
                   const keys = seasons.map((s) => s.key);
@@ -419,11 +431,11 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
                         <div style={{ minWidth: 0 }}>
                           <div className="title truncate">{p.title}</div>
                           <div className="sub">
-                            Every season · {seasons.length} seasons · {episodes(p.downloaded_count)} · {bytes(p.downloaded_bytes)}
+                            Every season · {seasons.length} seasons · {episodes(p.downloaded_count)} · {mb(seasons.reduce((a, s) => a + s.downloaded_bytes, 0))}
                           </div>
                         </div>
                       </label>
-                      {seasons.map((s) => row(s.key, <Mic size={16} />, s.label, `${episodes(s.downloaded_count)} · ${duration(s.downloaded_duration_ms)}`, true))}
+                      {seasons.map((s) => row(s.key, <Mic size={16} />, s.label, `${episodes(s.downloaded_count)} · ${duration(s.downloaded_duration_ms)} · ${mb(s.downloaded_bytes)}`, true))}
                     </div>
                   );
                 })}
@@ -434,7 +446,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
             <div className="stack">
               <strong>Local folders</strong>
               <div className="list">
-                {readyFolders.map((c) => row(`folder:${c.id}`, <Folder size={16} />, c.name, `${c.track_count} files · ${duration(c.total_duration_ms)}`))}
+                {readyFolders.map((c) => row(`folder:${c.id}`, <Folder size={16} />, c.name, `${c.track_count} files · ${duration(c.total_duration_ms)} · ${mb(c.current_bytes)}`))}
               </div>
             </div>
           )}

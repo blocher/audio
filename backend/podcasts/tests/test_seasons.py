@@ -33,3 +33,13 @@ def test_show_without_season_data_is_one_season(db):
     _episode(show, 2, None, False)
     [p] = list_podcasts(None)
     assert [(s["season"], s["episode_count"], s["downloaded_count"]) for s in p.seasons] == [(None, 2, 1)]
+
+
+def test_season_size_counts_downsized_files(db):
+    show = Podcast.objects.create(feed_url="https://example.com/feed", title="Show")
+    a = _episode(show, 1, 1, True)
+    _episode(show, 2, 1, True)
+    Track.objects.filter(episode=a).update(size_bytes=30, optimized_size_bytes=10)
+    Track.objects.exclude(episode=a).update(size_bytes=20)
+    [season] = _one(show.pk).seasons
+    assert season["downloaded_bytes"] == 30

@@ -10,6 +10,7 @@ from django.db.models import (
     OuterRef,
     Q,
     Subquery,
+    Sum,
     Value,
     When,
 )
@@ -20,6 +21,7 @@ from ninja.errors import HttpError
 
 from core.api import JobOut, TrackOut, preferences
 from core.jobs import active_job, enqueue
+from core.models import Track
 
 from . import client, services
 from .models import AudibleAccount, Book, LibraryEntry, Listener
@@ -75,6 +77,7 @@ class BookOut(Schema):
     convert_mono: bool
     track_count: int = 0
     transcribed_count: int = 0
+    size_bytes: int = 0  # the chapters at their current size: downsized where done, original otherwise
 
     @staticmethod
     def resolve_account_ids(obj: Book) -> list[int]:
@@ -193,6 +196,15 @@ def books_qs(user):
         .order_by("theirs", "account__name", "pk")
     )
 
+    # A subquery, so the sum isn't multiplied by the other joins.
+    current_bytes = (
+        Track.objects.filter(book=OuterRef("pk"))
+        .order_by()
+        .values("book")
+        .annotate(total=Sum(Case(When(optimized_size_bytes__gt=0, then="optimized_size_bytes"), default="size_bytes")))
+        .values("total")
+    )
+
     def pick(field: str):
         return Subquery(entries.values(field)[:1])
 
@@ -202,6 +214,7 @@ def books_qs(user):
         .annotate(
             track_count=Count("tracks", distinct=True),
             transcribed_count=Count("tracks", filter=Q(tracks__transcript__status="ready"), distinct=True),
+            size_bytes=Coalesce(Subquery(current_bytes), Value(0), output_field=BigIntegerField()),
             purchase_date=pick("purchase_date"),
             percent_complete=Coalesce(pick("percent_complete"), Value(0.0), output_field=FloatField()),
             position_ms=Coalesce(pick("position_ms"), Value(0), output_field=BigIntegerField()),

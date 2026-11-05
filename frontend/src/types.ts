@@ -105,6 +105,8 @@ export interface Book {
   convert_mono: boolean;
   track_count: number;
   transcribed_count: number;
+  /** The chapters at their current size (downsized where done). */
+  size_bytes: number;
 }
 
 export interface BookDetail extends Book {
@@ -139,6 +141,7 @@ export interface PodcastSeason {
   episode_count: number;
   downloaded_count: number;
   downloaded_duration_ms: number;
+  downloaded_bytes: number;
 }
 
 export interface Episode {
@@ -178,6 +181,8 @@ export interface Collection {
   created_at: string;
   track_count: number;
   total_bytes: number;
+  /** Downsized where done, original otherwise: what goes on a card. */
+  current_bytes: number;
   total_duration_ms: number;
   mp3_count: number;
   transcribed_count: number;

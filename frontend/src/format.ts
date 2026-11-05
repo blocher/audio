@@ -5,6 +5,11 @@ export function bytes(n: number): string {
   return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
+/** Always in MB (no GB), so sizes are easy to add up against a card's 500 MB. */
+export function mb(n: number): string {
+  return `${Math.max(n ? 1 : 0, Math.round(n / 1024 ** 2)).toLocaleString()} MB`;
+}
+
 export function duration(ms: number): string {
   const minutes = Math.round(ms / 60000);
   if (minutes < 60) return `${minutes} min`;
