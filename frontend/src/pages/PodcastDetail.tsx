@@ -3,6 +3,7 @@ import { ArrowLeft, Download, ExternalLink, FileText, MessageCircle, Minimize2, 
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { RESTORE, listHref } from "../hooks/listMemory";
 import CardPlanner from "../components/CardPlanner";
 import { AskPanel } from "../components/Ask";
 import { TranscriptView } from "../components/Listen";
@@ -55,7 +56,7 @@ export default function PodcastDetail() {
 
   return (
     <>
-      <Link to="/podcasts" className="breadcrumb">
+      <Link to={listHref("/podcasts")} state={RESTORE} className="breadcrumb">
         <ArrowLeft size={15} /> Podcasts
       </Link>
       <section className="hero podcast">

@@ -11,6 +11,7 @@ import {
   type LibraryItem,
 } from "../components/LibraryGrid";
 import { Empty, PageHead } from "../components/ui";
+import { useListMemory } from "../hooks/listMemory";
 import type { Playlist, Session } from "../types";
 
 /** The signed-in user's own page: what they've starred first, then what they're partway through. */
@@ -25,6 +26,7 @@ export default function Home() {
     queryFn: () => api.get<Playlist[]>("/yoto/playlists"),
   });
   const library = useLibraryItems();
+  useListMemory(!library.loading);
   const user = session.data?.user;
   const name = user?.first_name || user?.username || "";
 

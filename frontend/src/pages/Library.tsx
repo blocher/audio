@@ -14,7 +14,7 @@ import {
   Search,
   Star,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import {
@@ -27,6 +27,7 @@ import {
 } from "../components/LibraryGrid";
 import { Button, Empty, PageHead, useToast } from "../components/ui";
 import { relative } from "../format";
+import { useListMemory, useUpdateParams } from "../hooks/listMemory";
 import { useAction } from "../hooks/queries";
 import type { AudibleAccount, Playlist } from "../types";
 
@@ -75,14 +76,26 @@ const FILTERS: {
 ];
 
 export default function Library() {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const update = useUpdateParams();
   const navigate = useNavigate();
   const toast = useToast();
   const kind = (params.get("kind") as Kind) || "all";
   const accountId = params.get("account");
   const active = FILTERS.filter((f) => params.get(f.key) === "1");
-  const [q, setQ] = useState("");
-  const [sort, setSort] = useState<"recent" | "title" | "progress">("recent");
+  // Search and sort live in the URL with the tab and filters, so Back (or the book's "← Library") returns to them.
+  // Each change builds on the latest URL, so quick taps in a row don't undo each other.
+  const setParam = (key: string, value: string) => update((p) => (value ? p.set(key, value) : p.delete(key)));
+  // The box keeps its own text so fast typing never waits on the URL; Back puts the URL's text back in it.
+  const urlQ = params.get("q") ?? "";
+  const [q, setQText] = useState(urlQ);
+  useEffect(() => setQText(urlQ), [urlQ]);
+  const setQ = (value: string) => {
+    setQText(value);
+    setParam("q", value);
+  };
+  const sort = (["title", "progress"] as const).find((s) => s === params.get("sort")) ?? "recent";
+  const setSort = (value: "recent" | "title" | "progress") => setParam("sort", value === "recent" ? "" : value);
 
   const accounts = useQuery({
     queryKey: ["audible-accounts"],
@@ -93,6 +106,7 @@ export default function Library() {
     queryFn: () => api.get<Playlist[]>("/yoto/playlists"),
   });
   const library = useLibraryItems();
+  useListMemory(!library.loading);
   const sync = useAction((id: number) => api.post(`/audible/accounts/${id}/sync`), [["books"]]);
 
   // Everything in the current tab and account, before search and the filters.
@@ -131,18 +145,8 @@ export default function Library() {
     local: library.folders.length,
   };
   const account = accounts.data?.find((a) => String(a.id) === accountId);
-  const setKind = (k: Kind) => {
-    const next = new URLSearchParams(params);
-    if (k === "all") next.delete("kind");
-    else next.set("kind", k);
-    setParams(next);
-  };
-  const toggleFilter = (key: string) => {
-    const next = new URLSearchParams(params);
-    if (next.get(key) === "1") next.delete(key);
-    else next.set(key, "1");
-    setParams(next);
-  };
+  const setKind = (k: Kind) => setParam("kind", k === "all" ? "" : k);
+  const toggleFilter = (key: string) => update((p) => (p.get(key) === "1" ? p.delete(key) : p.set(key, "1")));
   // Book-only filters are hidden where there are no books to apply them to.
   const hasBooks = inView.some((i) => i.kind === "book");
   const shown = FILTERS.filter((f) => !f.booksOnly || hasBooks || active.includes(f));
@@ -160,7 +164,7 @@ export default function Library() {
           <>
             <div className="search">
               <Search size={17} />
-              <input className="input" placeholder="Search your audio…" value={q} onChange={(e) => setQ(e.target.value)} />
+              <input className="input" type="search" placeholder="Search your audio…" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             {account ? (
               <Button

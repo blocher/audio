@@ -15,6 +15,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
+import { useScrollTopOnNavigate } from "../hooks/listMemory";
 import { useJobs } from "../hooks/queries";
 import { clearUserCaches, promptInstall, usePwa } from "../pwa";
 import type { AudibleAccount, User, YotoAccount } from "../types";
@@ -32,6 +33,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
   const yoto = useQuery({ queryKey: ["yoto-accounts"], queryFn: () => api.get<YotoAccount[]>("/yoto/accounts") });
 
   useEffect(() => setOpen(false), [location.pathname]);
+  useScrollTopOnNavigate();
 
   async function logout() {
     await api.post("/auth/logout");

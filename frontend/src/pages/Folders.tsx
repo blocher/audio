@@ -4,6 +4,7 @@ import { useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useFilters, type Filter } from "../components/LibraryGrid";
+import { useListMemory } from "../hooks/listMemory";
 import { StarButton } from "../components/StarButton";
 import { BitratePicker } from "../components/Tools";
 import { useStars } from "../hooks/stars";
@@ -22,6 +23,7 @@ export default function Folders() {
     { key: "mp3", label: "MP3 ready", icon: <CheckCircle2 size={15} />, test: (c) => c.mp3_count > 0 },
   ];
   const { shown, chips, filtering } = useFilters(filters, folders.data ?? []);
+  useListMemory(!folders.isLoading);
   return (
     <>
       <PageHead

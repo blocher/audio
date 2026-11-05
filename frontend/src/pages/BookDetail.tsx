@@ -3,6 +3,7 @@ import { ArrowLeft, Download, FileText, ListMusic, MessageCircle, Minimize2, Pla
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { RESTORE, listHref } from "../hooks/listMemory";
 import CardPlanner from "../components/CardPlanner";
 import { AskPanel } from "../components/Ask";
 import { MakeAskableButton, askState } from "../components/Askable";
@@ -93,7 +94,7 @@ export default function BookDetail() {
 
   return (
     <>
-      <Link to="/library" className="breadcrumb">
+      <Link to={listHref("/library")} state={RESTORE} className="breadcrumb">
         <ArrowLeft size={15} /> Library
       </Link>
       <section className="hero">

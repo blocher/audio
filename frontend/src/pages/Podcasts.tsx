@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useFilters, type Filter } from "../components/LibraryGrid";
+import { useListMemory } from "../hooks/listMemory";
 import { StarButton } from "../components/StarButton";
 import { Button, Cover, Empty, Modal, Note, PageHead, Progress, Spinner, errorText } from "../components/ui";
 import { useStars } from "../hooks/stars";
@@ -20,6 +21,7 @@ export default function Podcasts() {
     { key: "saved", label: "Has saved episodes", icon: <Download size={15} />, test: (p) => p.downloaded_count > 0 },
   ];
   const { shown, chips, filtering } = useFilters(filters, podcasts.data ?? []);
+  useListMemory(!podcasts.isLoading);
   return (
     <>
       <PageHead

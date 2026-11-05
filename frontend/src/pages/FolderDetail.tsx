@@ -3,6 +3,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, FileText, ListMusic, MessageCircle, Mini
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { RESTORE, listHref } from "../hooks/listMemory";
 import CardPlanner from "../components/CardPlanner";
 import { AskPanel } from "../components/Ask";
 import { TranscriptView, useWorkPosition } from "../components/Listen";
@@ -47,7 +48,7 @@ export default function FolderDetail() {
 
   return (
     <>
-      <Link to="/folders" className="breadcrumb">
+      <Link to={listHref("/folders")} state={RESTORE} className="breadcrumb">
         <ArrowLeft size={15} /> Local folders
       </Link>
       <PageHead

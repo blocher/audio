@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { bytes, duration } from "../format";
+import { useUpdateParams } from "../hooks/listMemory";
 import { useStars, type StarKind } from "../hooks/stars";
 import { usePlayer } from "../player";
 import type { Book, Collection, Playlist, Podcast } from "../types";
@@ -283,14 +284,10 @@ export interface Filter<T> {
 
 /** Toggle chips that narrow a list; each one's state lives in the URL (?starred=1). */
 export function useFilters<T>(filters: Filter<T>[], rows: T[]) {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const update = useUpdateParams();
   const active = filters.filter((f) => params.get(f.key) === "1");
-  const toggle = (key: string) => {
-    const next = new URLSearchParams(params);
-    if (next.get(key) === "1") next.delete(key);
-    else next.set(key, "1");
-    setParams(next, { replace: true });
-  };
+  const toggle = (key: string) => update((p) => (p.get(key) === "1" ? p.delete(key) : p.set(key, "1")));
   const chips = (
     <div className="chips filter-chips" role="group" aria-label="Filter">
       {filters.map((f) => {
