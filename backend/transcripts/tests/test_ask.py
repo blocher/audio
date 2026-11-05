@@ -2,7 +2,7 @@ import pytest
 
 from audible_books.models import AudibleAccount, Book
 from core.models import Track
-from transcripts.ask import citations, fit, passages, render
+from transcripts.ask import citations, fit, grounded, passages, render
 from transcripts.models import Conversation, Segment, Transcript
 from transcripts.stt import group_words
 
@@ -104,7 +104,19 @@ def test_spoiler_safe_question_ignores_earlier_whole_work_answers(book_conversat
     list(stream_answer(book_conversation, "Who did it?", 300_000, whole_work=True))
     list(stream_answer(book_conversation, "What happened so far?", 300_000))
     assert "butler" not in fake_model["context"] and fake_model["system"] == SYSTEM
-    assert [m["content"] for m in fake_model["messages"]] == ["What happened so far?"]
+    assert [m["content"] for m in fake_model["messages"]] == [grounded("What happened so far?", 300_000)]
+
+
+def test_spoiler_safe_questions_carry_the_grounding_warning(book_conversation, fake_model):
+    from transcripts.ask import stream_answer
+
+    list(stream_answer(book_conversation, "Who is here?", 300_000))
+    sent = fake_model["messages"][-1]["content"]
+    assert sent.startswith("STRICT RULES") and "ends at 0:05:00" in sent and sent.endswith("\nWho is here?")
+    assert book_conversation.messages.first().content == "Who is here?"  # saved without it
+
+    list(stream_answer(book_conversation, "How does it end?", 300_000, whole_work=True))
+    assert fake_model["messages"][-1]["content"] == "How does it end?"
 
 
 def test_position_before_any_speech_explains_what_to_do(book_conversation, fake_model):
@@ -133,7 +145,7 @@ def test_failed_questions_stay_in_history_but_not_in_the_prompt(
     assert book_conversation.title == "Hi?"
 
     list(stream_answer(book_conversation, "So far?", 300_000))
-    assert [m["content"] for m in fake_model["messages"]] == ["So far?"]
+    assert [m["content"] for m in fake_model["messages"]] == [grounded("So far?", 300_000)]
 
 
 def test_conversations_are_private_to_their_owner(client, django_user_model, book_conversation):

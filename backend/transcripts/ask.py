@@ -24,9 +24,8 @@ answer in that transcript.
 
 Spoilers are the one thing that matters most here. The transcript stops at the listener's current position on \
 purpose. Never reveal, hint at, or speculate about anything after that point — even if you recognise the work and \
-know what happens later. If the honest answer depends on later events, say it hasn't been covered yet. General \
-background the listener could know without reading on (historical context, what a word means, who a real person \
-was) is fine.
+know what happens later. If the honest answer depends on later events, say it hasn't been covered yet. Don't draw \
+on your own knowledge of the work or any outside source; the transcript is the only source.
 
 Cite moments in the transcript with their timestamp in square brackets, like [1:02:13], so the listener can jump \
 there. Keep answers conversational and reasonably short unless asked for depth. The transcript comes from automatic \
@@ -41,6 +40,19 @@ answer comes from after the listener's position, you may say so briefly, but don
 Cite moments in the transcript with their timestamp in square brackets, like [1:02:13], so the listener can jump \
 there. Keep answers conversational and reasonably short unless asked for depth. The transcript comes from automatic \
 speech recognition, so names may be misspelled; use the most plausible spelling."""
+
+# Put in front of every spoiler-safe question, so the rule sits right next to what the model is answering. The app
+# shows it to the listener, greyed out, above the question box. "{position}" is the spoiler limit as h:mm:ss.
+GROUNDING = """STRICT RULES — READ BEFORE ANSWERING. Use ONLY the transcript you were given, which ends at \
+{position}. That is exactly where the listener is, and it is everything that exists for this answer.
+- NO SPOILERS. Do not reveal, hint at, foreshadow or speculate about anything after {position}, not even whether \
+something will matter later.
+- NO OUTSIDE KNOWLEDGE. Do not use what you know or can guess about this work, its author, sequels, adaptations, \
+summaries, reviews or any other source, even if you recognise it.
+- GROUNDED IN THE TEXT. Every statement must come from the transcript, cited with its [h:mm:ss] timestamp. If the \
+transcript does not answer the question, say so plainly instead of filling the gap.
+
+The listener's question:"""
 
 EXCERPT_NOTE = """Note: the transcript below is too long for this model, so it contains the most recent part of \
 the transcript plus earlier passages that look relevant to the question; “[…]” marks gaps. If the \
@@ -294,6 +306,10 @@ def stream_model(provider: str, model: str, system: str, context: str, messages:
     raise RuntimeError(f"Unknown provider {provider}")
 
 
+def grounded(question: str, position_ms: int) -> str:
+    return f"{GROUNDING.replace('{position}', fmt_time(position_ms))}\n{question}"
+
+
 def answered_turns(messages) -> list[dict]:
     """Question/answer pairs for the model, leaving out questions that failed and the errors they got."""
     turns: list[dict] = []
@@ -367,7 +383,7 @@ def stream_answer(
         model,
         SYSTEM_WHOLE if whole_work else SYSTEM,
         context,
-        [*history, {"role": "user", "content": question}],
+        [*history, {"role": "user", "content": question if whole_work else grounded(question, position_ms)}],
     ):
         if kind == "text":
             chunks.append(value)

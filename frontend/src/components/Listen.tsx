@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, MessageCircle, Plus, Search, Send, Sparkles, Trash2 } from "lucide-react";
+import { FileText, Lock, MessageCircle, Plus, Search, Send, Sparkles, Trash2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, streamNdjson } from "../api";
 import { clock } from "../format";
@@ -106,6 +106,12 @@ export function TranscriptView({ work, queue, positionMs }: { work: WorkRef; que
   );
 }
 
+/** h:mm:ss, the way the server writes the spoiler limit into the grounding warning. */
+function hms(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
 function renderAnswer(text: string, onCite: (ms: number) => void): ReactNode[] {
   return text.split(/(\[\d+:\d{2}:\d{2}\])/g).map((part, i) => {
     const m = part.match(/^\[(\d+):(\d{2}):(\d{2})\]$/);
@@ -180,6 +186,11 @@ export function AskPanel({
       /* storage unavailable */
     }
   }, []);
+  const grounding = useQuery({
+    queryKey: ["ask-grounding"],
+    queryFn: () => api.get<{ text: string }>("/transcripts/ask/grounding"),
+    staleTime: Infinity,
+  });
   const logRef = useRef<HTMLDivElement>(null);
   const effectiveHorizon = horizon ?? positionMs;
 
@@ -367,6 +378,12 @@ export function AskPanel({
             ask();
           }}
         >
+          {!wholeWork && grounding.data && (
+            <div className="ask-prefix" aria-label="Sent before your question; can't be edited">
+              <Lock size={12} />
+              <span>{grounding.data.text.split("{position}").join(hms(effectiveHorizon))}</span>
+            </div>
+          )}
           <input
             className="input"
             placeholder={wholeWork ? `Ask anything about the ${noun}…` : "Ask about what you've heard…"}

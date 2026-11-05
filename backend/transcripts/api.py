@@ -175,6 +175,12 @@ def delete_conversation(request, cid: int):
     return {"ok": True}
 
 
+@router.get("/ask/grounding")
+def ask_grounding(request):
+    """The warning put in front of each spoiler-safe question; "{position}" stands for the spoiler limit."""
+    return {"text": ask.GROUNDING}
+
+
 class AskIn(Schema):
     question: str = Field(min_length=1, max_length=4000)
     position_ms: int = Field(ge=0)

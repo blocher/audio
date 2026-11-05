@@ -45,7 +45,7 @@ The server already runs Postgres. Celery workers write job progress at the same 
 - **New card per source** also keeps order, but starts every book or show on a fresh card.
 - **Keep shows whole** splits each source into full cards and then bin-packs the leftovers (first-fit decreasing), so short shows can share a card.
 
-**Spoilers.** "Ask" sends Claude only the transcript before your position. That position is either the player's position or a slider. Claude is also told not to use what it might know about the book from elsewhere. Answers cite `[h:mm:ss]` timestamps, and clicking one plays from that moment.
+**Spoilers.** "Ask" sends Claude only the transcript before your position. That position is either the player's position or a slider. Each question also goes out behind a fixed warning (shown greyed out above the question box): no spoilers past that point, no outside knowledge, everything grounded in the transcript. Answers cite `[h:mm:ss]` timestamps, and clicking one plays from that moment.
 
 **Audible.** Signing in takes two steps because Amazon has no web OAuth for third parties:
 1. Open Amazon's sign-in link and log in.
