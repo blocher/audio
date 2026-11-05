@@ -1,20 +1,33 @@
     # Folder uploads send one audio file per request.
     client_max_body_size 1024m;
-    add_header X-Content-Type-Options nosniff always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-    add_header X-Frame-Options DENY always;
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; script-src 'self'; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://login.yotoplay.com" always;
+    include /var/www/audio.benlocher.com/deploy/nginx-security-headers.inc;
 
     root /var/www/audio.benlocher.com/frontend/dist;
     index index.html;
 
     location = /index.html {
+        include /var/www/audio.benlocher.com/deploy/nginx-security-headers.inc;
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    }
+
+    # The service worker and manifest must be re-checked on every visit so a deploy reaches installed apps.
+    location = /sw.js {
+        include /var/www/audio.benlocher.com/deploy/nginx-security-headers.inc;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri =404;
+    }
+
+    location = /manifest.webmanifest {
+        types { application/manifest+json webmanifest; }
+        include /var/www/audio.benlocher.com/deploy/nginx-security-headers.inc;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri =404;
     }
 
     location /assets/ {
         try_files $uri =404;
         expires 30d;
+        include /var/www/audio.benlocher.com/deploy/nginx-security-headers.inc;
         add_header Cache-Control "public, max-age=2592000, immutable";
     }
 
@@ -28,6 +41,7 @@
     location /protected-media/ {
         internal;
         alias /var/lib/audio/media/;
+        include /var/www/audio.benlocher.com/deploy/nginx-security-headers.inc;
         add_header Accept-Ranges bytes always;
         gzip off;
     }
