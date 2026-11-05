@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AudioLines,
+  Download,
   Folder,
   House,
   LibraryBig,
@@ -15,6 +16,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useJobs } from "../hooks/queries";
+import { clearUserCaches, promptInstall, usePwa } from "../pwa";
 import type { AudibleAccount, User, YotoAccount } from "../types";
 import PlayerBar from "./PlayerBar";
 import { Button, SourceIcon } from "./ui";
@@ -23,6 +25,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
   const qc = useQueryClient();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const pwa = usePwa();
   const jobs = useJobs();
   const running = (jobs.data ?? []).filter((j) => j.status === "running" || j.status === "queued").length;
   const audible = useQuery({ queryKey: ["audible-accounts"], queryFn: () => api.get<AudibleAccount[]>("/audible/accounts") });
@@ -32,6 +35,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
 
   async function logout() {
     await api.post("/auth/logout");
+    await clearUserCaches();
     qc.clear();
     qc.invalidateQueries({ queryKey: ["session"] });
   }
@@ -89,6 +93,12 @@ export default function Shell({ user, children }: { user: User; children: ReactN
             <SettingsIcon size={20} /> Settings
           </NavLink>
         </nav>
+
+        {pwa.canInstall && !pwa.standalone && (
+          <button className="sidebar-install" onClick={() => void promptInstall()}>
+            <Download size={18} /> Install Audio as an app
+          </button>
+        )}
 
         <div className="sidebar-foot">
           <span className="avatar">{(user.first_name || user.username).slice(0, 1).toUpperCase()}</span>

@@ -1,0 +1,56 @@
+{
+  "id": "/",
+  "name": "Audio",
+  "short_name": "Audio",
+  "description": "Your audiobooks, podcasts, and local audio in one place, ready for listening and for Yoto cards.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "theme_color": "#3b251b",
+  "background_color": "#faefe0",
+  "categories": ["entertainment", "books", "music"],
+  "prefer_related_applications": false,
+  "launch_handler": { "client_mode": ["focus-existing", "auto"] },
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/monochrome-512.png", "sizes": "512x512", "type": "image/png", "purpose": "monochrome" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Library",
+      "short_name": "Library",
+      "description": "Browse your audiobooks",
+      "url": "/library",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "Podcasts",
+      "short_name": "Podcasts",
+      "description": "Latest episodes from your shows",
+      "url": "/podcasts",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "Yoto cards",
+      "short_name": "Yoto",
+      "description": "Plan and sync Yoto cards",
+      "url": "/yoto",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "Activity",
+      "short_name": "Activity",
+      "description": "Downloads, conversions, and uploads in progress",
+      "url": "/activity",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96", "type": "image/png" }]
+    }
+  ]
+}

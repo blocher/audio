@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, FolderInput, KeyRound, Link2, Mic, Plus, RefreshCw, SlidersHorizontal, SquareStack, Trash2 } from "lucide-react";
+import { Download, ExternalLink, FolderInput, KeyRound, Link2, Mic, MonitorSmartphone, Plus, RefreshCw, Share, SlidersHorizontal, SquareStack, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
@@ -10,6 +10,7 @@ import { BitratePicker } from "../components/Tools";
 import { Button, Modal, Note, PageHead, SourceIcon, Spinner, errorText, useToast } from "../components/ui";
 import { bytes, relative } from "../format";
 import { useAction } from "../hooks/queries";
+import { clearUserCaches, isIos, promptInstall, requestPersistence, storageInfo, usePwa } from "../pwa";
 import type { AudibleAccount, SettingsData, YotoAccount } from "../types";
 import { useConnectYoto } from "./Yoto";
 
@@ -48,6 +49,7 @@ export default function Settings() {
         <KeysSection data={settings.data} />
         <PreferencesSection data={settings.data} />
         <StorageSection />
+        <AppSection />
       </div>
     </>
   );
@@ -535,6 +537,85 @@ function StorageSection() {
         <dt>Disk</dt>
         <dd>{bytes(s.disk_free)} free of {bytes(s.disk_total)}</dd>
       </dl>
+    </section>
+  );
+}
+
+function AppSection() {
+  const pwa = usePwa();
+  const toast = useToast();
+  const device = useQuery({ queryKey: ["device-storage"], queryFn: storageInfo, staleTime: 0 });
+  const ios = isIos();
+
+  async function install() {
+    if (await promptInstall()) toast("Audio is installed. Open it from your home screen, dock, or app launcher.");
+  }
+  async function keep() {
+    const granted = await requestPersistence();
+    toast(granted ? "This device will keep Audio’s saved data." : "The browser decided it may still clear saved data when space runs low.", granted ? "info" : "error");
+    device.refetch();
+  }
+  async function clear() {
+    await clearUserCaches();
+    toast("Cleared saved library data and covers on this device.");
+    device.refetch();
+  }
+
+  return (
+    <section className="panel" id="app">
+      <div className="panel-head">
+        <MonitorSmartphone size={18} />
+        <h3>App on this device</h3>
+      </div>
+      {pwa.standalone ? (
+        <p className="muted" style={{ marginBottom: 14 }}>
+          You’re using the installed app. Lock-screen and headphone controls work while audio plays, and pages you’ve opened stay
+          readable offline.
+        </p>
+      ) : pwa.canInstall ? (
+        <>
+          <p className="muted" style={{ marginBottom: 14 }}>
+            Install Audio to get its own window and icon, lock-screen playback controls, and offline access to pages you’ve opened.
+          </p>
+          <Button variant="primary" icon={<Download size={16} />} onClick={install}>
+            Install Audio
+          </Button>
+        </>
+      ) : ios ? (
+        <p className="muted" style={{ marginBottom: 14 }}>
+          To install on iPhone or iPad, open this page in Safari, tap <Share size={14} style={{ verticalAlign: "-2px" }} /> Share, then{" "}
+          <strong>Add to Home Screen</strong>.
+        </p>
+      ) : (
+        <p className="muted" style={{ marginBottom: 14 }}>
+          To install, use your browser’s <strong>Install</strong> or <strong>Add to Home screen</strong> option (in Chrome and Edge it’s
+          in the address bar or the ⋮ menu; in Safari on a Mac, choose File → Add to Dock).
+        </p>
+      )}
+      {device.data && (
+        <>
+          <div className="divider" />
+          <dl className="kv" style={{ marginBottom: 14 }}>
+            <dt>Saved on this device</dt>
+            <dd>
+              {bytes(device.data.usage)}
+              {device.data.quota ? ` of ${bytes(device.data.quota)} available` : ""}
+            </dd>
+            <dt>Kept when space is low</dt>
+            <dd>{device.data.persisted ? "Yes" : "Not guaranteed"}</dd>
+          </dl>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            {!device.data.persisted && (
+              <Button size="sm" onClick={keep}>
+                Keep saved data
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" icon={<Trash2 size={15} />} onClick={clear}>
+              Clear saved data
+            </Button>
+          </div>
+        </>
+      )}
     </section>
   );
 }

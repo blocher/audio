@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { api } from "./api";
+import AppStatus from "./components/AppStatus";
 import Shell from "./components/Shell";
 import { Spinner, ToastProvider } from "./components/ui";
 import Activity from "./pages/Activity";
@@ -16,6 +17,7 @@ import PodcastDetail from "./pages/PodcastDetail";
 import Podcasts from "./pages/Podcasts";
 import Settings from "./pages/Settings";
 import Yoto from "./pages/Yoto";
+import { clearUserCaches } from "./pwa";
 import type { Session } from "./types";
 
 export default function App() {
@@ -28,6 +30,12 @@ export default function App() {
     return () => window.removeEventListener("audio:unauthorized", onUnauthorized);
   }, [qc]);
 
+  // Signed out (or the session expired): nothing from the last person should stay readable offline.
+  const signedOut = session.data?.authenticated === false;
+  useEffect(() => {
+    if (signedOut) void clearUserCaches();
+  }, [signedOut]);
+
   if (session.isLoading) {
     return (
       <div style={{ display: "grid", placeItems: "center", height: "100vh", color: "var(--ink-muted)" }}>
@@ -38,6 +46,7 @@ export default function App() {
 
   return (
     <ToastProvider>
+      <AppStatus />
       {!session.data?.authenticated ? (
         <Login />
       ) : (

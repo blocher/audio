@@ -70,6 +70,11 @@
   --player-h: 84px;
   --gutter: clamp(16px, 2.4vw, 36px);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* notches and home indicators, when installed or with viewport-fit=cover */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 
   color-scheme: light;
 }

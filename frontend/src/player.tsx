@@ -154,7 +154,99 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [queue, index, playing, positionMs, durationMs, rate, current, play],
   );
 
+  useMediaSession(audio.current, value);
+
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;
+}
+
+const FALLBACK_ART = [
+  { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+  { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+];
+
+/** Lock screen, notification shade, headphone buttons, and keyboard media keys. */
+function useMediaSession(el: HTMLAudioElement, player: PlayerState) {
+  const latest = useRef(player);
+  useEffect(() => {
+    latest.current = player;
+  });
+  const supported = typeof navigator !== "undefined" && "mediaSession" in navigator;
+  const current = player.current;
+
+  useEffect(() => {
+    if (!supported) return;
+    if (!current) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    const artwork = current.cover
+      ? [{ src: new URL(current.cover, location.href).href, sizes: "512x512" }, ...FALLBACK_ART]
+      : FALLBACK_ART;
+    navigator.mediaSession.metadata = new MediaMetadata({ title: current.title, artist: current.subtitle, album: "Audio", artwork });
+  }, [supported, current?.src, current?.title, current?.subtitle, current?.cover]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!supported) return;
+    navigator.mediaSession.playbackState = !current ? "none" : player.playing ? "playing" : "paused";
+  }, [supported, current, player.playing]);
+
+  useEffect(() => {
+    if (!supported) return;
+    const ms = navigator.mediaSession;
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ["play", () => el.play().catch(() => undefined)],
+      ["pause", () => el.pause()],
+      ["stop", () => el.pause()],
+      ["seekbackward", (d) => latest.current.skip(-((d.seekOffset ?? 15) * 1000))],
+      ["seekforward", (d) => latest.current.skip((d.seekOffset ?? 30) * 1000)],
+      [
+        "seekto",
+        (d) => {
+          if (d.seekTime == null) return;
+          if (d.fastSeek && "fastSeek" in el) el.fastSeek(d.seekTime);
+          else el.currentTime = d.seekTime;
+        },
+      ],
+      ["previoustrack", () => latest.current.prev()],
+      ["nexttrack", () => latest.current.next()],
+    ];
+    for (const [action, handler] of handlers) {
+      try {
+        ms.setActionHandler(action, handler);
+      } catch {
+        /* this browser doesn't offer that control */
+      }
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          ms.setActionHandler(action, null);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [supported, el]);
+
+  // Keep the lock-screen scrubber in step without re-rendering on every timeupdate.
+  useEffect(() => {
+    if (!supported || !navigator.mediaSession.setPositionState) return;
+    const sync = () => {
+      if (!Number.isFinite(el.duration) || el.duration <= 0) return;
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: el.duration,
+          playbackRate: el.playbackRate || 1,
+          position: Math.min(el.currentTime, el.duration),
+        });
+      } catch {
+        /* ignore out-of-range values while a new track loads */
+      }
+    };
+    const events = ["loadedmetadata", "durationchange", "ratechange", "seeked", "play", "pause"];
+    events.forEach((e) => el.addEventListener(e, sync));
+    return () => events.forEach((e) => el.removeEventListener(e, sync));
+  }, [supported, el]);
 }
 
 export function usePlayer(): PlayerState {

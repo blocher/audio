@@ -4,9 +4,12 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { PlayerProvider } from "./player";
+import { initPwa } from "./pwa";
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/components.css";
+
+initPwa();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } },

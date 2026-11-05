@@ -53,6 +53,13 @@ The server already runs Postgres. Celery workers write job progress at the same 
 
 The account is then registered as a device, the same way the Audible app is. Removing it here deregisters the device. Books download as AAXC and are decrypted with the per-book voucher (no re-encode). The decrypted `.m4b` master is kept so you can re-convert at another bitrate without downloading again.
 
+**Installable app (PWA).** The site installs as an app from Chrome/Edge (address bar or Settings → App on this device), Android ("Add to Home screen"), and iOS Safari (Share → Add to Home Screen).
+- `frontend/public/manifest.webmanifest` holds the name, colors, icons (any, maskable, monochrome) and app shortcuts. The icon sources are the SVGs in `frontend/public/icons/`; the PNGs come from them via `rsvg-convert`.
+- The service worker template is `frontend/pwa/sw.js`. The build (`pwaPlugin` in `vite.config.ts`) writes `dist/sw.js` with the precache list and a content-derived version, so every deploy ships a new worker. It only registers in production builds; use the `frontend-pwa` launch config (`vite preview` on 5184) to try it locally.
+- Caching: the app shell is precached; pages load network-first and fall back to the cached shell after 4 s or when offline; `/api/` JSON is network-first with the last copy kept for offline; covers are stale-while-revalidate (capped at 400). Audio (`/api/media/`, range requests) is never cached. Signed-in caches are deleted on sign-out or session expiry.
+- A new deploy shows "A new version of Audio is ready — Reload" instead of swapping code under an open tab.
+- The player publishes Media Session metadata and actions, so lock screens, headphones and media keys control playback.
+
 ## Local development
 
 You need Python 3.13 (via `uv`), Node 24+, Postgres, Redis and ffmpeg.

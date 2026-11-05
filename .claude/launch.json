@@ -25,6 +25,21 @@
         "5183"
       ],
       "port": 5183
+    },
+    {
+      "name": "frontend-pwa",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview",
+        "--prefix",
+        "frontend",
+        "--",
+        "--port",
+        "5184",
+        "--strictPort"
+      ],
+      "port": 5184
     }
   ]
 }
