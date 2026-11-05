@@ -130,6 +130,15 @@ export interface Podcast {
   downsized_bytes: number;
   total_duration_ms: number;
   transcribed_count: number;
+  /** Seasons in order (numbered, then episodes with none). A feed with no season numbers has one, `season: null`. */
+  seasons: PodcastSeason[];
+}
+
+export interface PodcastSeason {
+  season: number | null;
+  episode_count: number;
+  downloaded_count: number;
+  downloaded_duration_ms: number;
 }
 
 export interface Episode {
@@ -229,7 +238,7 @@ export interface PackGroup {
   key: string;
   title: string;
   track_ids: number[];
-  /** Audible series name, used to suggest a name for the set of cards. */
+  /** Audible series name, or the show for a podcast season; used to suggest a name for the set of cards. */
   series?: string;
 }
 

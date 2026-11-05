@@ -8,6 +8,7 @@ import { Button, Empty, Meter, Modal, Note, PageHead, Spinner, errorText, useToa
 import { bytes, duration, relative } from "../format";
 import { useAction, useJobs } from "../hooks/queries";
 import type { Book, Collection, Job, PackGroup, Playlist, Podcast, PodcastDetail, SettingsData, Track, YotoAccount } from "../types";
+import { seasonGroups, seasonKey, seasonLabel } from "../seasons";
 import { JobLine } from "./BookDetail";
 
 const CARD_BYTES = 500 * 1024 * 1024;
@@ -255,6 +256,9 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
   const blocks = bookBlocks(readyBooks.filter((b) => matches(b.title, b.authors, ...allSeries(b).map((s) => s.title))));
   const readyPodcasts = (podcasts.data ?? []).filter((p) => p.downloaded_count > 0 && matches(p.title, p.author)).sort((a, b) => natural(a.title, b.title));
   const readyFolders = (folders.data ?? []).filter((c) => c.track_count > 0 && matches(c.name)).sort((a, b) => natural(a.name, b.name));
+  // A show's seasons with saved episodes, keyed the way seasonGroups keys them.
+  const savedSeasons = (p: Podcast) =>
+    p.seasons.filter((s) => s.downloaded_count > 0).map((s) => ({ ...s, key: seasonKey(p.id, s.season, p.seasons.length > 1), label: seasonLabel(s.season, p.seasons.length > 1) }));
   const nothingReady = !readyBooks.length && !(podcasts.data ?? []).some((p) => p.downloaded_count > 0) && !(folders.data ?? []).some((c) => c.track_count > 0);
 
   async function build() {
@@ -266,27 +270,32 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
       const grouped = new Map(all.flatMap((bl) => bl.books.map((b) => [String(b.id), b] as const)));
       const keys = [
         ...all.flatMap((bl) => bl.books.map((b) => `book:${b.id}`)),
-        ...(podcasts.data ?? []).filter((p) => p.downloaded_count > 0).sort((a, b) => natural(a.title, b.title)).map((p) => `podcast:${p.id}`),
+        ...(podcasts.data ?? [])
+          .filter((p) => p.downloaded_count > 0)
+          .sort((a, b) => natural(a.title, b.title))
+          .flatMap((p) => savedSeasons(p).map((s) => s.key)),
         ...(folders.data ?? []).filter((c) => c.track_count > 0).sort((a, b) => natural(a.name, b.name)).map((c) => `folder:${c.id}`),
       ].filter((k) => chosen.has(k));
+      // One fetch per show, however many of its seasons were picked.
+      const shows = new Map<string, Promise<PackGroup[]>>();
+      const showGroups = (id: string) => {
+        if (!shows.has(id)) shows.set(id, api.get<PodcastDetail>(`/podcasts/${id}`).then((d) => seasonGroups(d, d.episodes)));
+        return shows.get(id)!;
+      };
       const groups = await Promise.all(
-        keys.map(async (key): Promise<PackGroup> => {
+        keys.map(async (key): Promise<PackGroup | undefined> => {
           const [kind, id] = key.split(":");
           if (kind === "book") {
             const book = grouped.get(id)!;
             const tracks = await api.get<Track[]>(`/tracks?book_id=${id}`);
             return { key, title: book.title, series: book.series || undefined, track_ids: tracks.map((t) => t.id) };
           }
-          if (kind === "podcast") {
-            const detail = await api.get<PodcastDetail>(`/podcasts/${id}`);
-            const eps = detail.episodes.filter((e) => e.track).sort((a, b) => (a.published_at ?? "").localeCompare(b.published_at ?? ""));
-            return { key, title: detail.title, track_ids: eps.map((e) => e.track!.id) };
-          }
+          if (kind === "podcast") return (await showGroups(id)).find((g) => g.key === key);
           const tracks = await api.get<Track[]>(`/tracks?collection_id=${id}`);
           return { key, title: folders.data!.find((c) => String(c.id) === id)!.name, track_ids: tracks.map((t) => t.id) };
         }),
       );
-      onPicked(groups);
+      onPicked(groups.filter((g): g is PackGroup => !!g));
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -330,7 +339,7 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
       ) : (
         <div className="stack" style={{ "--gap": "18px" } as React.CSSProperties}>
           <p className="muted">
-            Only audio that's already converted or downloaded can go on a card. Pick several (a whole series, say) and they'll play back to back
+            Only audio that's already converted or downloaded can go on a card. Pick several (a whole series, or a few seasons of a show) and they'll play back to back
             on as few cards as possible.
           </p>
           <div className="search">
@@ -382,7 +391,42 @@ function SourcePicker({ onClose, onPicked }: { onClose: () => void; onPicked: (g
             <div className="stack">
               <strong>Podcasts</strong>
               <div className="list">
-                {readyPodcasts.map((p) => row(`podcast:${p.id}`, <Mic size={16} />, p.title, `${p.downloaded_count} saved episodes · ${bytes(p.downloaded_bytes)}`))}
+                {readyPodcasts.map((p) => {
+                  const seasons = savedSeasons(p);
+                  const episodes = (n: number) => `${n} saved episode${n === 1 ? "" : "s"}`;
+                  if (seasons.length === 1) {
+                    const s = seasons[0];
+                    const which = p.seasons.length > 1 ? `${s.label} · ` : "";
+                    return row(s.key, <Mic size={16} />, p.title, `${which}${episodes(s.downloaded_count)} · ${bytes(p.downloaded_bytes)}`);
+                  }
+                  // Several seasons: like a book series, tick the whole show or just the seasons you want.
+                  const keys = seasons.map((s) => s.key);
+                  const picked = keys.filter((k) => chosen.has(k)).length;
+                  return (
+                    <div key={`show:${p.id}`}>
+                      <label className="list-row" style={{ gridTemplateColumns: "auto auto 1fr", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={picked === keys.length}
+                          ref={(el) => {
+                            if (el) el.indeterminate = picked > 0 && picked < keys.length;
+                          }}
+                          onChange={(e) => setMany(keys, e.target.checked)}
+                          style={box}
+                          aria-label={`Every season of ${p.title}`}
+                        />
+                        <Mic size={16} />
+                        <div style={{ minWidth: 0 }}>
+                          <div className="title truncate">{p.title}</div>
+                          <div className="sub">
+                            Every season · {seasons.length} seasons · {episodes(p.downloaded_count)} · {bytes(p.downloaded_bytes)}
+                          </div>
+                        </div>
+                      </label>
+                      {seasons.map((s) => row(s.key, <Mic size={16} />, s.label, `${episodes(s.downloaded_count)} · ${duration(s.downloaded_duration_ms)}`, true))}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

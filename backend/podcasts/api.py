@@ -16,6 +16,13 @@ from .tasks import download_episodes_task
 router = Router(tags=["podcasts"])
 
 
+class SeasonOut(Schema):
+    season: int | None  # None: episodes the feed gives no season (the whole show when none has one)
+    episode_count: int
+    downloaded_count: int
+    downloaded_duration_ms: int
+
+
 class PodcastOut(Schema):
     id: int
     title: str
@@ -33,6 +40,7 @@ class PodcastOut(Schema):
     downsized_bytes: int = 0  # saved episodes at their current size: downsized where done, original otherwise
     total_duration_ms: int = 0
     transcribed_count: int = 0
+    seasons: list[SeasonOut] = Field(default_factory=list)
 
 
 class EpisodeOut(Schema):
@@ -75,19 +83,45 @@ def annotated():
             )
         ),
         total_duration_ms=Sum("episodes__duration_ms"),
-        transcribed_count=Count(
-            "episodes", filter=Q(episodes__track__transcript__status="ready"), distinct=True
-        ),
+        transcribed_count=Count("episodes", filter=Q(episodes__track__transcript__status="ready"), distinct=True),
     )
+
+
+def season_summaries(podcast_ids: list[int]) -> dict[int, list[dict]]:
+    """Per podcast, its seasons in order (numbered first, then episodes with no season) with what's downloaded."""
+    rows = (
+        Episode.objects.filter(podcast_id__in=podcast_ids)
+        .values("podcast_id", "season")
+        .annotate(
+            episode_count=Count("id"),
+            downloaded_count=Count("id", filter=Q(track__isnull=False)),
+            downloaded_duration_ms=Sum("track__duration_ms"),
+        )
+    )
+    out: dict[int, list[dict]] = {}
+    for row in rows:
+        out.setdefault(row["podcast_id"], []).append(
+            {
+                "season": row["season"],
+                "episode_count": row["episode_count"],
+                "downloaded_count": row["downloaded_count"],
+                "downloaded_duration_ms": row["downloaded_duration_ms"] or 0,
+            }
+        )
+    for seasons in out.values():
+        seasons.sort(key=lambda s: (s["season"] is None, s["season"] or 0))
+    return out
 
 
 @router.get("", response=list[PodcastOut])
 def list_podcasts(request):
     rows = list(annotated())
+    seasons = season_summaries([row.pk for row in rows])
     for row in rows:
         row.downloaded_bytes = row.downloaded_bytes or 0
         row.downsized_bytes = row.downsized_bytes or 0
         row.total_duration_ms = row.total_duration_ms or 0
+        row.seasons = seasons.get(row.pk, [])
     return rows
 
 
@@ -118,6 +152,7 @@ def _one(pk: int) -> Podcast:
     podcast.downloaded_bytes = podcast.downloaded_bytes or 0
     podcast.downsized_bytes = podcast.downsized_bytes or 0
     podcast.total_duration_ms = podcast.total_duration_ms or 0
+    podcast.seasons = season_summaries([pk]).get(pk, [])
     return podcast
 
 

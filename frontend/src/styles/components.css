@@ -2868,3 +2868,10 @@ code {
     overscroll-behavior-y: none;
   }
 }
+
+/* A season header in a podcast's episode list: tick it to select the season, like a series in the card picker. */
+.list-row.season-head {
+  grid-template-columns: auto minmax(0, 1fr);
+  background: var(--paper-hover);
+  cursor: pointer;
+}

@@ -15,6 +15,7 @@ import { bytes, date, duration, relative, stripHtml } from "../format";
 import { useAction, useActiveJob } from "../hooks/queries";
 import { usePlayer } from "../player";
 import type { Episode, Job, PodcastDetail as PodcastDetailT, Track } from "../types";
+import { bySeason, seasonGroups } from "../seasons";
 import { JobLine } from "./BookDetail";
 
 export default function PodcastDetail() {
@@ -33,10 +34,13 @@ export default function PodcastDetail() {
   const remove = useAction(() => api.del(`/podcasts/${id}`), [["podcasts"]]);
 
   const p = podcast.data;
-  const episodes = useMemo(() => {
-    const list = (p?.episodes ?? []).filter((e) => (filter === "saved" ? e.status === "ready" : filter === "remote" ? e.status !== "ready" : true));
-    return order === "oldest" ? [...list].reverse() : list;
+  // Seasons work like books in a series: listed in order, each with its own header when there's more than one.
+  const seasons = useMemo(() => {
+    const shown = (e: Episode) => (filter === "saved" ? e.status === "ready" : filter === "remote" ? e.status !== "ready" : true);
+    const list = bySeason(p?.episodes ?? []).map((s) => ({ ...s, total: s.episodes, episodes: s.episodes.filter(shown) }));
+    return order === "oldest" ? list : list.reverse().map((s) => ({ ...s, episodes: [...s.episodes].reverse() }));
   }, [p, filter, order]);
+  const episodes = seasons.flatMap((s) => s.episodes);
 
   if (podcast.isLoading) return <Spinner size={26} />;
   if (podcast.isError || !p) return <Note tone="error">{errorText(podcast.error)}</Note>;
@@ -45,12 +49,21 @@ export default function PodcastDetail() {
   const savedTracks = saved.map((e) => e.track!) as Track[];
   const chosen = selected.size ? p.episodes.filter((e) => selected.has(e.id)) : [];
   const chosenTracks = (chosen.length ? chosen : saved).filter((e) => e.track).map((e) => e.track!) as Track[];
-  const chronological = [...(chosen.length ? chosen : saved)].filter((e) => e.track).sort((a, b) => (a.published_at ?? "").localeCompare(b.published_at ?? ""));
+  const yotoGroups = seasonGroups(p, p.episodes, chosen.length ? (e) => selected.has(e.id) : undefined);
   const toggle = (eid: number) =>
     setSelected((s) => {
       const next = new Set(s);
       if (next.has(eid)) next.delete(eid);
       else next.add(eid);
+      return next;
+    });
+  const selectMany = (ids: number[], on: boolean) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      for (const eid of ids) {
+        if (on) next.add(eid);
+        else next.delete(eid);
+      }
       return next;
     });
 
@@ -128,7 +141,18 @@ export default function PodcastDetail() {
       </div>
 
       <div className="list">
-        {episodes.map((e) => {
+        {seasons.map((season) => [
+          seasons.length > 1 && season.episodes.length > 0 && (
+            <SeasonHead
+              key={`season:${season.season}`}
+              label={season.label}
+              episodes={season.total}
+              selected={season.episodes.filter((e) => selected.has(e.id)).length}
+              shown={season.episodes.length}
+              onSelect={(on) => selectMany(season.episodes.map((e) => e.id), on)}
+            />
+          ),
+          ...season.episodes.map((e) => {
           const track = e.track;
           const isCurrent = !!track && player.current?.trackId === track.id;
           return (
@@ -152,6 +176,7 @@ export default function PodcastDetail() {
               <div style={{ minWidth: 0 }}>
                 <div className="title truncate">{e.title}</div>
                 <div className="sub">
+                  {e.number !== null && <span>Episode {e.number}</span>}
                   <span>{date(e.published_at)}</span>
                   {e.duration_ms > 0 && <span>{duration(e.duration_ms)}</span>}
                   {e.status === "downloading" && <span className="pill honey">Downloading…</span>}
@@ -169,7 +194,8 @@ export default function PodcastDetail() {
               </div>
             </div>
           );
-        })}
+          }),
+        ])}
       </div>
 
       <div className="row" style={{ marginTop: 24 }}>
@@ -188,7 +214,7 @@ export default function PodcastDetail() {
       {dialog === "downsize" && <DownsizeDialog tracks={chosenTracks.length ? chosenTracks : savedTracks} onClose={() => setDialog(null)} />}
       {dialog === "transcribe" && <TranscribeDialog tracks={chosenTracks.length ? chosenTracks : savedTracks} onClose={() => setDialog(null)} />}
       {dialog === "yoto" && (
-        <CardPlanner groups={[{ key: `podcast:${p.id}`, title: p.title, track_ids: chronological.map((e) => e.track!.id) }]} coverUrl={p.image_url} onClose={() => setDialog(null)} />
+        <CardPlanner groups={yotoGroups} coverUrl={p.image_url} onClose={() => setDialog(null)} />
       )}
       {episodeView && episodeView.episode.track && (
         <Modal wide title={episodeView.episode.title} onClose={() => setEpisodeView(null)}>
@@ -196,6 +222,32 @@ export default function PodcastDetail() {
         </Modal>
       )}
     </>
+  );
+}
+
+function SeasonHead({ label, episodes, selected, shown, onSelect }: { label: string; episodes: Episode[]; selected: number; shown: number; onSelect: (on: boolean) => void }) {
+  const saved = episodes.filter((e) => e.track);
+  const length = saved.reduce((a, e) => a + (e.track!.duration_ms || e.duration_ms), 0);
+  return (
+    <label className="list-row season-head">
+      <input
+        type="checkbox"
+        checked={selected === shown}
+        ref={(el) => {
+          if (el) el.indeterminate = selected > 0 && selected < shown;
+        }}
+        onChange={(e) => onSelect(e.target.checked)}
+        style={{ accentColor: "var(--terracotta)", width: 16, height: 16 }}
+        aria-label={`Select ${label}`}
+      />
+      <div style={{ minWidth: 0 }}>
+        <div className="title truncate">{label}</div>
+        <div className="sub">
+          <span>{episodes.length} episode{episodes.length === 1 ? "" : "s"}</span>
+          {saved.length > 0 && <span>{saved.length} saved · {duration(length)}</span>}
+        </div>
+      </div>
+    </label>
   );
 }
 
