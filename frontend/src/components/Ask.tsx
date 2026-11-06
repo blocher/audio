@@ -3,6 +3,8 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronLeft,
+  ChevronUp,
+  FileText,
   Lock,
   MessageCircle,
   MessagesSquare,
@@ -10,22 +12,25 @@ import {
   Pause,
   Play,
   Plus,
+  Quote,
   RotateCcw,
+  RotateCw,
   SlidersHorizontal,
   Sparkles,
   Square,
   SquarePen,
   Trash2,
+  Undo2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api, streamNdjson } from "../api";
 import { clock, relative } from "../format";
 import { dictationSupported, useDictation, type Dictation } from "../hooks/dictation";
 import { usePlayer, type QueueItem } from "../player";
-import type { ChatMessage, Conversation } from "../types";
+import type { ChatMessage, Conversation, WorkTranscript } from "../types";
 import { workNoun, workQuery, type WorkRef } from "./Listen";
 import ModelPicker, { useModels, type ModelChoice } from "./ModelPicker";
 import { Button, Empty, Note, Spinner, errorText } from "./ui";
@@ -86,6 +91,7 @@ function chapterShort(title: string): string {
 type ChapterAt = (workMs: number) => { short: string; title: string } | null;
 
 function renderAnswer(text: string, onCite: (ms: number) => void, chapterAt?: ChapterAt): ReactNode[] {
+  // A citation opens the passage it points to (with its own player); it doesn't start playing by itself.
   return text.split(/(\[\d+:\d{2}:\d{2}\])/g).map((part, i) => {
     const m = part.match(/^\[(\d+):(\d{2}):(\d{2})\]$/);
     if (!m) return part;
@@ -93,8 +99,8 @@ function renderAnswer(text: string, onCite: (ms: number) => void, chapterAt?: Ch
     const chapter = chapterAt?.(ms);
     const time = m[1] === "0" ? `${m[2]}:${m[3]}` : `${m[1]}:${m[2]}:${m[3]}`;
     return (
-      <button key={i} className="cite" onClick={() => onCite(ms)} title={chapter ? `Play from here · ${chapter.title}` : "Play from here"}>
-        <Play size={10} fill="currentColor" />
+      <button key={i} className="cite" onClick={() => onCite(ms)} title={chapter ? `Read and play from here · ${chapter.title}` : "Read and play from here"}>
+        <Quote size={10} fill="currentColor" />
         {chapter && <span className="cite-ch">{chapter.short} ·</span>}
         {time}
       </button>
@@ -123,7 +129,7 @@ function store(key: string, value: unknown) {
  * One overlay at a time (the composer or a sheet), kept in the URL as ?ask=… so the phone's back gesture closes it
  * instead of leaving the page.
  */
-type Overlay = "compose" | "chats" | "options";
+type Overlay = "compose" | "chats" | "options" | "passage";
 function useOverlay() {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -299,6 +305,233 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
     </div>,
     document.body,
   );
+}
+
+const PASSAGE_BEFORE = 30;
+const PASSAGE_AFTER = 60;
+const PASSAGE_MORE = 80;
+
+/** The moment a citation points to, so the passage can open on it. */
+type Cite = { ms: number; /** The spoiler limit the answer was given under; null for the whole work. */ horizonMs: number | null };
+
+/**
+ * A citation's passage: the transcript slides up over the chat, opened on the cited line, to scroll back and forth
+ * through. Its own player starts from the citation only when you press play, then follows along line by line.
+ * Lines past the answer's spoiler limit stay blurred until you ask to see them (or play that far).
+ */
+function Passage({
+  work,
+  queue,
+  cite,
+  chapterAt,
+  onClose,
+}: {
+  work: WorkRef;
+  queue: QueueItem[];
+  cite: Cite;
+  chapterAt: ChapterAt;
+  onClose: () => void;
+}) {
+  useEscape(onClose);
+  const player = usePlayer();
+  const transcript = useQuery({
+    queryKey: ["transcript", workQuery(work), ""],
+    queryFn: () => api.get<WorkTranscript>(`/transcripts/work?${workQuery(work)}&q=`),
+  });
+  const segments = useMemo(() => transcript.data?.segments ?? [], [transcript.data]);
+  const citeIndex = useMemo(() => lastAtOrBefore(segments, cite.ms), [segments, cite.ms]);
+
+  const offsets = useMemo(() => queue.map((q) => q.workOffsetMs ?? 0), [queue]);
+  const playerIndex = player.current ? queue.findIndex((q) => q.trackId === player.current!.trackId) : -1;
+  const playerWorkMs = playerIndex >= 0 ? offsets[playerIndex] + player.positionMs : null;
+  // Until you press play here, the player belongs to whatever it was doing; after, it's this passage's.
+  const [started, setStarted] = useState(false);
+  const live = started && playerWorkMs !== null;
+  const currentIndex = live ? lastAtOrBefore(segments, playerWorkMs) : -1;
+
+  const playFrom = (workMs: number) => {
+    let index = 0;
+    for (let i = 0; i < offsets.length; i++) if (offsets[i] <= workMs) index = i;
+    if (!queue[index]) return;
+    setStarted(true);
+    followUntil.current = 0;
+    player.play(queue, index, Math.max(0, workMs - offsets[index]));
+  };
+  const toggle = () => (live ? player.toggle() : playFrom(cite.ms));
+
+  // The window of lines on screen: around the citation, growing as you ask for more or play past the end.
+  const [range, setRange] = useState<[number, number] | null>(null);
+  const [from, to] = range ?? [Math.max(0, citeIndex - PASSAGE_BEFORE), Math.min(segments.length, citeIndex + PASSAGE_AFTER + 1)];
+  useEffect(() => {
+    if (currentIndex >= to - 5 && to < segments.length) setRange([from, Math.min(segments.length, currentIndex + PASSAGE_MORE)]);
+    if (currentIndex >= 0 && currentIndex < from) setRange([Math.max(0, currentIndex - PASSAGE_BEFORE), to]);
+  }, [currentIndex, from, to, segments.length]);
+
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const citeRef = useRef<HTMLDivElement>(null);
+  const currentRef = useRef<HTMLDivElement>(null);
+  // Open on the cited line, a little above the middle so what leads up to it shows too.
+  const opened = useRef(false);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    const line = citeRef.current;
+    if (opened.current || !body || !line) return;
+    opened.current = true;
+    body.scrollTop = line.offsetTop - body.clientHeight * 0.32;
+  });
+  // Showing earlier lines adds them above: keep what you were reading where it was.
+  const heightBefore = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (body && heightBefore.current !== null) body.scrollTop += body.scrollHeight - heightBefore.current;
+    heightBefore.current = null;
+  }, [from]);
+  const showEarlier = () => {
+    heightBefore.current = bodyRef.current?.scrollHeight ?? null;
+    setRange([Math.max(0, from - PASSAGE_MORE), to]);
+  };
+
+  // While playing, keep the spoken line in view, unless you've just scrolled away to read something else.
+  const followUntil = useRef(0);
+  const touched = () => (followUntil.current = Date.now() + 5000);
+  useEffect(() => {
+    const body = bodyRef.current;
+    const line = currentRef.current;
+    if (!body || !line || !player.playing || Date.now() < followUntil.current) return;
+    const top = line.offsetTop - body.scrollTop;
+    if (top < body.clientHeight * 0.15 || top > body.clientHeight * 0.7)
+      body.scrollTo({ top: line.offsetTop - body.clientHeight * 0.32, behavior: "smooth" });
+  }, [currentIndex, player.playing]);
+
+  // No spoilers past the answer's limit, or past where you've played to here, whichever is later.
+  const [revealed, setRevealed] = useState(false);
+  const veilMs = revealed || cite.horizonMs === null ? Infinity : Math.max(cite.horizonMs, live ? playerWorkMs! : 0);
+  const firstVeiled = segments.findIndex((s, i) => i >= from && s.start_ms > veilMs);
+
+  const chapter = chapterAt(cite.ms);
+  const shownMs = live ? playerWorkMs! : cite.ms;
+  const awayFromCite = live && Math.abs(playerWorkMs! - cite.ms) > 5000;
+  const visible = segments.slice(from, to);
+
+  return createPortal(
+    <div className="sheet-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sheet passage" role="dialog" aria-modal="true" aria-label="Cited passage">
+        <div className="sheet-grip" aria-hidden />
+        <div className="sheet-head">
+          <div className="passage-title">
+            <h3 className="truncate">{chapter?.title ?? "Cited passage"}</h3>
+            <small className="muted tabular">Cited at {clock(cite.ms)}</small>
+          </div>
+          <button type="button" className="round-btn ghost" onClick={onClose} aria-label="Close">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="sheet-body passage-body" ref={bodyRef} onWheel={touched} onTouchMove={touched}>
+          {transcript.isLoading ? (
+            <div className="passage-status">
+              <Spinner />
+            </div>
+          ) : transcript.isError ? (
+            <Note tone="error">{errorText(transcript.error)}</Note>
+          ) : !segments.length ? (
+            <Empty icon={<FileText size={30} />} title="No transcript text here">
+              You can still listen from the cited moment below.
+            </Empty>
+          ) : (
+            <div className="transcript">
+              {from > 0 && (
+                <button type="button" className="passage-more" onClick={showEarlier}>
+                  <ChevronUp size={15} /> Earlier
+                </button>
+              )}
+              {visible.map((s, k) => {
+                const i = from + k;
+                const veiled = firstVeiled >= 0 && i >= firstVeiled;
+                const header = i === from || segments[i - 1].track_id !== s.track_id;
+                return (
+                  <Fragment key={`${s.track_id}-${s.start_ms}-${i}`}>
+                    {i === firstVeiled && (
+                      <div className="passage-veil">
+                        <Lock size={13} />
+                        <span>Past the spoiler limit for this answer ({clock(cite.horizonMs ?? 0)})</span>
+                        <button type="button" onClick={() => setRevealed(true)}>
+                          Show anyway
+                        </button>
+                      </div>
+                    )}
+                    {header && <div className="seg-chapter">{s.track_title}</div>}
+                    <div
+                      ref={(el) => {
+                        if (i === citeIndex) citeRef.current = el;
+                        if (i === currentIndex) currentRef.current = el;
+                      }}
+                      className={`seg ${i === citeIndex ? "cited" : ""} ${i === currentIndex ? "current" : ""} ${veiled ? "veiled" : ""}`}
+                    >
+                      <time onClick={() => playFrom(s.start_ms)} title="Play from here">
+                        {clock(s.start_ms)}
+                      </time>
+                      <span aria-hidden={veiled || undefined}>{s.text}</span>
+                    </div>
+                  </Fragment>
+                );
+              })}
+              {to < segments.length && (
+                <button type="button" className="passage-more" onClick={() => setRange([from, Math.min(segments.length, to + PASSAGE_MORE)])}>
+                  <ChevronDown size={15} /> Later
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="passage-player">
+          <div className="passage-progress" aria-hidden>
+            <span style={{ width: `${live && player.durationMs ? (player.positionMs / player.durationMs) * 100 : 0}%` }} />
+          </div>
+          <div className="passage-controls">
+            <div className="passage-time">
+              <b className="tabular">{clock(shownMs)}</b>
+              <small className="muted truncate">
+                {live ? (player.playing ? "Playing" : "Paused") : "Cited moment"}
+                {chapterAt(shownMs) && ` · ${chapterAt(shownMs)!.short}`}
+              </small>
+            </div>
+            <button type="button" className="round-btn ghost" onClick={() => player.skip(-15000)} disabled={!live} aria-label="Back 15 seconds">
+              <RotateCcw size={20} />
+            </button>
+            <button type="button" className="round-btn passage-play" onClick={toggle} aria-label={live && player.playing ? "Pause" : "Play from the citation"}>
+              {live && player.playing ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" style={{ marginLeft: 3 }} />}
+            </button>
+            <button type="button" className="round-btn ghost" onClick={() => player.skip(15000)} disabled={!live} aria-label="Forward 15 seconds">
+              <RotateCw size={20} />
+            </button>
+            <div className="passage-again">
+              {awayFromCite && (
+                <button type="button" className="btn ghost sm" onClick={() => playFrom(cite.ms)}>
+                  <Undo2 size={14} /> Citation
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** The last line starting at or before a moment (the first line if it's before them all). */
+function lastAtOrBefore(segments: { start_ms: number }[], ms: number): number {
+  let lo = 0;
+  let hi = segments.length - 1;
+  let found = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (segments[mid].start_ms <= ms) {
+      found = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return found;
 }
 
 /** The phone's full-page question editor: big text area, voice, and Send always above the keyboard. */
@@ -576,11 +809,14 @@ export function AskPanel({
     },
     [queue, offsets],
   );
-  function playAt(workMs: number) {
-    let index = 0;
-    for (let i = 0; i < offsets.length; i++) if (offsets[i] <= workMs) index = i;
-    if (queue[index]) player.play(queue, index, workMs - offsets[index]);
-  }
+  const [cite, setCite] = useState<Cite | null>(null);
+  const openCite = (ms: number, horizonMs: number | null) => {
+    setCite({ ms, horizonMs });
+    overlay.open("passage");
+  };
+  const passage = overlay.current === "passage" && cite && (
+    <Passage key={`${cite.ms}-${cite.horizonMs}`} work={work} queue={queue} cite={cite} chapterAt={chapterAt} onClose={overlay.close} />
+  );
 
   async function ask(text?: string) {
     const question = (text ?? draft).trim();
@@ -776,13 +1012,16 @@ export function AskPanel({
       )}
       {messages.map((m, i) => (
         <div key={`${m.id}-${i}`} className={`bubble ${m.role}`}>
-          {m.role === "assistant" ? renderAnswer(m.content, playAt, chapterAt) : m.role === "error" ? `No answer: ${m.content}` : m.content}
+          {m.role === "assistant"
+            ? renderAnswer(m.content, (ms) => openCite(ms, m.whole_work ? null : m.position_ms), chapterAt) : m.role === "error" ? `No answer: ${m.content}` : m.content}
           {m.role === "user" && <div className="bubble-meta">{m.whole_work ? `whole ${noun}` : `up to ${clock(m.position_ms)}`}</div>}
           {m.role === "assistant" && m.model && <div className="bubble-meta">{m.model}</div>}
         </div>
       ))}
       {notice && <Note tone="info">{notice}</Note>}
-      {streaming && <div className="bubble assistant">{renderAnswer(streaming, playAt, chapterAt)}</div>}
+      {streaming && (
+        <div className="bubble assistant">{renderAnswer(streaming, (ms) => openCite(ms, wholeWork ? null : effectiveHorizon), chapterAt)}</div>
+      )}
       {busy && !streaming && (
         <div className="bubble assistant typing" aria-label="Thinking">
           <span />
@@ -933,6 +1172,7 @@ export function AskPanel({
           {trigger}
         </div>
         {composer}
+        {passage}
         {overlay.current === "chats" && (
           <Sheet title="Conversations" onClose={overlay.close}>
             {conversationList}
@@ -970,6 +1210,7 @@ export function AskPanel({
       </div>
       <div className="ask-convos">{conversationList}</div>
       {compact && composer}
+      {passage}
     </div>
   );
 }

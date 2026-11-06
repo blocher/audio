@@ -3011,3 +3011,176 @@ code {
     gap: 2px;
   }
 }
+
+/* A citation's passage: the transcript slides up over the chat, with a player that starts from the cited line. */
+.sheet-backdrop:has(.passage) {
+  justify-content: center;
+}
+
+.sheet.passage {
+  height: 86dvh;
+  max-width: 760px;
+}
+
+@media (min-width: 861px) {
+  .sheet-backdrop:has(.passage) {
+    align-items: center;
+  }
+  .sheet.passage {
+    height: min(80dvh, 820px);
+    border-radius: 20px;
+    padding-bottom: 0;
+    overflow: hidden;
+  }
+  .sheet.passage .sheet-grip {
+    visibility: hidden;
+  }
+}
+
+.passage-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.passage-title small {
+  font-size: var(--text-xs);
+}
+
+.passage-body {
+  position: relative;
+  flex: 1;
+  padding: 0 10px 24px;
+  border-top: 1px solid var(--paper-edge);
+}
+
+.passage-body .seg {
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 10px;
+  font-size: 1.02rem;
+  line-height: 1.62;
+}
+
+.passage-body .seg-chapter {
+  font-size: var(--text-base, 1rem);
+  padding-top: 14px;
+}
+
+.passage-body .seg.cited {
+  background: var(--terracotta-soft);
+  box-shadow: inset 3px 0 0 var(--terracotta);
+}
+
+.passage-body .seg.current {
+  background: color-mix(in srgb, var(--terracotta) 20%, transparent);
+}
+
+.passage-body .seg.current.cited {
+  background: color-mix(in srgb, var(--terracotta) 24%, transparent);
+}
+
+.passage-body .seg.veiled span {
+  filter: blur(5px);
+  user-select: none;
+}
+
+.passage-status {
+  display: grid;
+  place-items: center;
+  padding: 48px 0;
+}
+
+.passage-more {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 6px 14px;
+  border: 1px solid var(--paper-edge);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+.passage-veil {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--paper-sunk);
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+.passage-veil span {
+  flex: 1;
+}
+
+.passage-veil button {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--terracotta-strong);
+  font-weight: 600;
+  font-size: inherit;
+}
+
+.passage-player {
+  position: relative;
+  flex: none;
+  border-top: 1px solid var(--paper-edge);
+  background: var(--paper-raised);
+}
+
+.passage-progress {
+  position: absolute;
+  inset: -1px 0 auto;
+  height: 2px;
+}
+
+.passage-progress span {
+  display: block;
+  height: 100%;
+  background: var(--terracotta);
+  transition: width 0.25s linear;
+}
+
+.passage-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 12px;
+}
+
+.passage-time {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.passage-time small {
+  font-size: var(--text-xs);
+}
+
+.round-btn.passage-play {
+  width: 54px;
+  height: 54px;
+  background: var(--terracotta);
+  color: #fff;
+}
+
+.passage-again {
+  display: flex;
+  justify-content: flex-end;
+}
