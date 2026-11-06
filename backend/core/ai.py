@@ -220,6 +220,88 @@ def _list_anthropic() -> tuple[list[ModelInfo], list[ModelInfo]]:
     return chat, []
 
 
+# ---------- the short list of chat models people pick from ----------
+
+BEST, BALANCED, FAST = "Best reasoning", "Balanced", "Fast"
+_V = r"(?P<v>\d+(?:[.-]\d+)?)"  # 5-5, 6.1, 4.20, or just 4
+_DATED = r"(?P<dated>-\d{4}(?:-?\d{2}){2}|-\d{4})?"  # -20250805, -2025-08-07, -0309
+_PREVIEW = r"(?P<preview>-preview(?:-[\d-]+)?)?"
+
+# Per provider, each tier's model families; the newest match across a tier's patterns wins (ties go to the earlier
+# pattern, then to a stable, undated alias). Families no tier names are left out of the picker.
+CHAT_TIERS: dict[str, list[tuple[str, list[str]]]] = {
+    "anthropic": [
+        (BEST, [rf"claude-opus-(?P<v>\d+(?:-\d)?){_DATED}"]),
+        (BALANCED, [rf"claude-sonnet-(?P<v>\d+(?:-\d)?){_DATED}"]),
+        (FAST, [rf"claude-haiku-(?P<v>\d+(?:-\d)?){_DATED}"]),
+    ],
+    "openai": [
+        (BEST, [rf"gpt-{_V}-sol{_DATED}", rf"gpt-{_V}{_DATED}"]),
+        (BALANCED, [rf"gpt-{_V}-astra{_DATED}", rf"gpt-{_V}-mini{_DATED}"]),
+        (FAST, [rf"gpt-{_V}-luna{_DATED}", rf"gpt-{_V}-nano{_DATED}"]),
+    ],
+    "gemini": [
+        (BEST, [rf"gemini-{_V}-pro{_PREVIEW}"]),
+        (BALANCED, [rf"gemini-{_V}-flash{_PREVIEW}"]),
+        (FAST, [rf"gemini-{_V}-flash-lite{_PREVIEW}"]),
+    ],
+    "xai": [
+        (BEST, [rf"grok-{_V}{_DATED}(?:-reasoning)?"]),
+        (FAST, [rf"grok-{_V}{_DATED}-fast(?:-reasoning|-non-reasoning)?", rf"grok-{_V}{_DATED}-non-reasoning"]),
+    ],
+    "groq": [
+        (BEST, [r"openai/gpt-oss-120b"]),
+        (BALANCED, [r"llama-3\.3-70b-versatile"]),
+        (FAST, [r"openai/gpt-oss-20b", r"llama-3\.1-8b-instant"]),
+    ],
+}
+
+
+def _version(text: str | None) -> float:
+    """ "5-5" → 5.5, "6.1" → 6.1, "4.20" → 4.2, "4" → 4.0."""
+    if not text:
+        return 0.0
+    major, _, minor = re.sub(r"-", ".", text).partition(".")
+    return float(f"{major}.{minor or 0}")
+
+
+def pretty_name(model_id: str) -> str:
+    """gpt-6.1-sol → GPT-6.1 Sol, gemini-3.8-flash → Gemini 3.8 Flash, claude-opus-5-5 → Claude Opus 5.5."""
+    name = model_id.split("/")[-1]
+    name = re.sub(r"(\d+)-(\d)(?=-|$)", r"\1.\2", name)
+    name = re.sub(r"-\d{4}(?:-?\d{2}){2}\b|-\d{4}\b", "", name).replace("non-reasoning", "non\u2011reasoning")
+    words = [w.upper() if w in {"gpt", "oss"} else w.capitalize() for w in name.split("-")]
+    out = " ".join(words)
+    return re.sub(r"^(GPT) (\d)", r"\1-\2", out)
+
+
+def curate_chat(provider: str, models: list[ModelInfo]) -> list[ModelInfo]:
+    """The newest model in each tier (best reasoning, balanced, fast), labelled with its tier."""
+    by_id = {m.id: m for m in models}
+    chosen: list[ModelInfo] = []
+    for tier, patterns in CHAT_TIERS.get(provider, []):
+        best_key, best = None, None
+        for rank, pattern in enumerate(patterns):
+            for m in models:
+                match = re.fullmatch(pattern, m.id)
+                if not match:
+                    continue
+                groups = match.groupdict()
+                key = (_version(groups.get("v")), -rank, not groups.get("preview"), not groups.get("dated"))
+                if best_key is None or key > best_key:
+                    best_key, best = key, m
+        if best and best not in chosen:
+            chosen.append(best)
+            best.extra["tier"] = tier
+    if not chosen:
+        # A provider whose model names we don't recognise: its known defaults, else the top of its own list.
+        known = [by_id[i] for i in PROVIDERS[provider].fallback_chat if i in by_id]
+        chosen = (known or models)[:3]
+    for m in chosen:
+        m.label = m.label or pretty_name(m.id)
+    return chosen
+
+
 LISTERS = {
     "openai": lambda: _list_openai("openai"),
     "xai": _list_xai,
@@ -232,7 +314,7 @@ LISTERS = {
 def provider_models(provider: str, refresh: bool = False) -> dict:
     """{"chat": [...], "stt": [...], "error": str} for one configured provider."""
     p = PROVIDERS[provider]
-    key = f"ai-models:{provider}:{hashlib.sha256(api_key(provider).encode()).hexdigest()[:12]}"
+    key = f"ai-models:v2:{provider}:{hashlib.sha256(api_key(provider).encode()).hexdigest()[:12]}"
     if not refresh and (cached := cache.get(key)):
         return cached
     error = ""
@@ -245,9 +327,13 @@ def provider_models(provider: str, refresh: bool = False) -> dict:
         stt = [ModelInfo(i) for i in p.fallback_stt]
     if not p.stt:
         stt = []
+    chat = curate_chat(provider, chat)
 
     def order(models: list[ModelInfo], preferred: tuple[str, ...]) -> list[dict]:
         rank = {mid: n for n, mid in enumerate(preferred)}
+        if any(m.extra.get("tier") for m in models):
+            # Tiered chat models stay in tier order, best first.
+            rank = {m.id: n for n, m in enumerate(models)}
         models = sorted(models, key=lambda m: rank.get(m.id, len(rank)))
         out = []
         for m in models:
@@ -259,6 +345,8 @@ def provider_models(provider: str, refresh: bool = False) -> dict:
                 "preview": m.preview,
                 "recommended": m.id in rank,
             }
+            if m.extra.get("tier"):
+                row["tier"] = m.extra["tier"]
             if (provider, m.id) in STT_PRICE_PER_HOUR:
                 row["price_per_hour"] = STT_PRICE_PER_HOUR[(provider, m.id)]
             if m.id in SEGMENT_STT_MODELS:

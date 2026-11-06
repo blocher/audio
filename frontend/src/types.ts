@@ -94,6 +94,8 @@ export interface Book {
   purchase_date: string | null;
   percent_complete: number;
   position_ms: number;
+  /** The farthest Audible position this app has seen, even after you rewound. */
+  farthest_ms: number;
   position_synced_at: string | null;
   is_finished: boolean;
   /** Whose Audible library the listening state above comes from. */
@@ -355,6 +357,8 @@ export interface AiModel {
   note: string;
   preview: boolean;
   recommended: boolean;
+  /** Chat models: "Best reasoning", "Balanced" or "Fast". */
+  tier?: string;
   price_per_hour?: number;
   timestamps?: "segments";
 }

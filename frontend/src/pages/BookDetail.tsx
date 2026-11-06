@@ -81,6 +81,7 @@ export default function BookDetail() {
   const currentBytes = withFiles.reduce((a, t) => a + (t.has_optimized ? t.optimized_size_bytes : t.size_bytes), 0);
   // Ask's spoiler limit is where you are in Audible; playing in this app doesn't move it.
   const askPosition = b.is_finished ? totalMs : b.position_ms;
+  const askFarthest = b.is_finished ? totalMs : Math.max(b.farthest_ms ?? 0, b.position_ms);
   // Your own account's position; when the book isn't in your library, whoever's it is.
   const whose = b.position_is_mine || !b.position_account ? "your" : `${b.position_account}'s`;
   const askSource = refreshPosition.isPending
@@ -239,6 +240,7 @@ export default function BookDetail() {
             totalMs={totalMs}
             positionMs={askPosition}
             positionNote={askSource}
+            farthestMs={askFarthest}
             title={b.title}
             onClose={closeAsk}
           />

@@ -31,7 +31,11 @@ import ModelPicker, { useModels, type ModelChoice } from "./ModelPicker";
 import { Button, Empty, Note, Spinner, errorText } from "./ui";
 
 const MODEL_KEY = "audio.askModel";
-const SCOPE_KEY = "audio.askWholeWork";
+const SCOPE_KEY = "audio.askWholeWork"; // 0 up to where I am, 2 farthest I've been, 1 whole work
+const FARTHEST_KEY = "audio.askFarthest:";
+
+type Scope = "here" | "farthest" | "whole";
+const SCOPE_CODES: Record<Scope, number> = { here: 0, whole: 1, farthest: 2 };
 
 /** Phones and small tablets: the width where the sidebar folds away. */
 export const COMPACT_QUERY = "(max-width: 860px)";
@@ -54,15 +58,45 @@ function hms(ms: number): string {
   return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function renderAnswer(text: string, onCite: (ms: number) => void): ReactNode[] {
+const WORD_NUMBERS = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split(" ");
+
+/** "Chapter 12: The Storm" → "Ch. 12"; "Part Two" → "Part 2"; "Prologue" stays "Prologue". */
+function chapterShort(title: string): string {
+  const t = title.trim();
+  const number = (raw: string) => {
+    const low = raw.toLowerCase();
+    if (/^\d+$/.test(low)) return String(Number(low));
+    if (WORD_NUMBERS.includes(low)) return String(WORD_NUMBERS.indexOf(low) + 1);
+    return /^[ivxlc]+$/.test(low) ? raw.toUpperCase() : null;
+  };
+  // A chapter number wins over a part or book number ("Book 2, Chapter 3" → "Ch. 3").
+  for (const [pattern, word] of [
+    [/\b(?:chapter|ch\.?)\s+([a-z0-9]+)\b/i, "Ch."],
+    [/\b(part|book|section|episode)\s+([a-z0-9]+)\b/i, ""],
+  ] as const) {
+    const m = t.match(pattern);
+    const n = m && number(m[m.length - 1]);
+    if (m && n) return `${word || m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()} ${n}`;
+  }
+  if (/^\d+$/.test(t)) return `Ch. ${Number(t)}`;
+  return t.length > 22 ? `${t.slice(0, 20).trimEnd()}…` : t;
+}
+
+/** Where in the work a moment falls: the chapter (track) it's in, for the citation chips. */
+type ChapterAt = (workMs: number) => { short: string; title: string } | null;
+
+function renderAnswer(text: string, onCite: (ms: number) => void, chapterAt?: ChapterAt): ReactNode[] {
   return text.split(/(\[\d+:\d{2}:\d{2}\])/g).map((part, i) => {
     const m = part.match(/^\[(\d+):(\d{2}):(\d{2})\]$/);
     if (!m) return part;
     const ms = (Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])) * 1000;
+    const chapter = chapterAt?.(ms);
+    const time = m[1] === "0" ? `${m[2]}:${m[3]}` : `${m[1]}:${m[2]}:${m[3]}`;
     return (
-      <button key={i} className="cite" onClick={() => onCite(ms)} title="Play from here">
+      <button key={i} className="cite" onClick={() => onCite(ms)} title={chapter ? `Play from here · ${chapter.title}` : "Play from here"}>
         <Play size={10} fill="currentColor" />
-        {m[1] === "0" ? `${m[2]}:${m[3]}` : `${m[1]}:${m[2]}:${m[3]}`}
+        {chapter && <span className="cite-ch">{chapter.short} ·</span>}
+        {time}
       </button>
     );
   });
@@ -126,9 +160,11 @@ function useVisualViewport() {
     on();
     v.addEventListener("resize", on);
     v.addEventListener("scroll", on);
+    document.addEventListener("visibilitychange", on);
     return () => {
       v.removeEventListener("resize", on);
       v.removeEventListener("scroll", on);
+      document.removeEventListener("visibilitychange", on);
     };
   }, []);
   return box;
@@ -277,6 +313,7 @@ function Composer({
   placeholder,
   suggestions,
   dictation,
+  dictated,
   focusOnOpen,
 }: {
   draft: string;
@@ -289,6 +326,8 @@ function Composer({
   placeholder: string;
   suggestions: string[];
   dictation: Dictation;
+  /** Goes up each time dictation adds words, so the cursor follows them (and only then). */
+  dictated: number;
   focusOnOpen: boolean;
 }) {
   const box = useVisualViewport();
@@ -296,13 +335,21 @@ function Composer({
   useEscape(onCancel);
   useEffect(() => {
     if (focusOnOpen) ref.current?.focus({ preventScroll: true });
+    return () => {
+      // Closing while the keyboard is up: let go of the focus before the text area disappears, and undo the scroll
+      // iOS added for the keyboard. Otherwise the page can stay shifted, so taps miss the question pill and the
+      // keyboard won't come back.
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active !== document.body) active.blur();
+      resetIosScroll();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Put the cursor at the end after dictation adds words.
+  // Put the cursor at the end after dictation adds words. Typing leaves it where you put it.
   useEffect(() => {
     const el = ref.current;
-    if (el && document.activeElement === el) el.setSelectionRange(el.value.length, el.value.length);
-  }, [draft]);
+    if (dictated && el && document.activeElement === el) el.setSelectionRange(el.value.length, el.value.length);
+  }, [dictated]);
   const busyMic = dictation.state !== "idle";
   const canSend = !!draft.trim() && !busyMic;
 
@@ -337,6 +384,7 @@ function Composer({
         value={draft}
         placeholder={placeholder}
         onChange={(e) => setDraft(e.target.value)}
+        onBlur={resetIosScroll}
         enterKeyHint="send"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -380,6 +428,16 @@ function Composer({
   );
 }
 
+/** iOS scrolls the whole page to make room for the keyboard and doesn't always scroll it back; fixed screens then
+ * draw in one place but take taps in another. Put it back once the keyboard is gone. */
+function resetIosScroll() {
+  setTimeout(() => {
+    const focused = document.activeElement;
+    if (focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement) return;
+    if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+  }, 60);
+}
+
 // ───────── the panel ─────────
 
 export function AskPanel({
@@ -388,6 +446,7 @@ export function AskPanel({
   totalMs,
   positionMs,
   positionNote,
+  farthestMs,
   title,
   onClose,
 }: {
@@ -397,6 +456,8 @@ export function AskPanel({
   positionMs: number;
   /** Where ``positionMs`` comes from, e.g. "your Audible position". */
   positionNote?: string;
+  /** The farthest point you've reached (books: from Audible). Without it, the farthest this device has played. */
+  farthestMs?: number;
   title: string;
   /** On phones Ask takes the whole screen; this is its back button. */
   onClose?: () => void;
@@ -418,10 +479,15 @@ export function AskPanel({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [horizon, setHorizon] = useState<number | null>(null);
-  const [wholeWork, setWholeWork] = useState<boolean>(() => stored<number | boolean>(SCOPE_KEY, false) == 1);
-  const pickScope = (whole: boolean) => {
-    setWholeWork(whole);
-    store(SCOPE_KEY, whole ? 1 : 0);
+  const [scope, setScope] = useState<Scope>(() => {
+    const code = Number(stored<number | boolean>(SCOPE_KEY, 0));
+    return code === 1 ? "whole" : code === 2 ? "farthest" : "here";
+  });
+  const wholeWork = scope === "whole";
+  const pickScope = (next: Scope) => {
+    setScope(next);
+    setHorizon(null);
+    store(SCOPE_KEY, SCOPE_CODES[next]);
   };
   const [choice, setChoice] = useState<ModelChoice | null>(() => stored<ModelChoice | null>(MODEL_KEY, null));
   const pickModel = useCallback((next: ModelChoice) => {
@@ -440,15 +506,39 @@ export function AskPanel({
     staleTime: Infinity,
   });
   const noun = workNoun(work);
-  const effectiveHorizon = horizon ?? positionMs;
+
+  // Without a farthest from the server, remember the farthest this device has played of this work.
+  const farKey = FARTHEST_KEY + workQuery(work);
+  const [playedFarthest, setPlayedFarthest] = useState(() => stored<number>(farKey, 0));
+  const inPlayerIndex = player.current ? queue.findIndex((q) => q.trackId === player.current!.trackId) : -1;
+  const playerWorkMs = inPlayerIndex >= 0 ? (queue[inPlayerIndex].workOffsetMs ?? 0) + player.positionMs : -1;
+  useEffect(() => {
+    if (farthestMs !== undefined || playerWorkMs <= playedFarthest + 1000) return;
+    setPlayedFarthest(playerWorkMs);
+    store(farKey, Math.round(playerWorkMs));
+  }, [farthestMs, playerWorkMs, playedFarthest, farKey]);
+  const farthest = Math.max(positionMs, farthestMs ?? playedFarthest);
+
+  const baseHorizon = scope === "farthest" ? farthest : positionMs;
+  const effectiveHorizon = horizon ?? baseHorizon;
   const prefix = !wholeWork && grounding.data ? grounding.data.text.split("{position}").join(hms(effectiveHorizon)) : null;
   const scopeLabel = wholeWork ? `Whole ${noun} · spoilers allowed` : `No spoilers past ${clock(effectiveHorizon)}`;
+  const baseNote =
+    scope === "farthest"
+      ? farthestMs !== undefined
+        ? "the farthest Audible has reported"
+        : "the farthest you've played here"
+      : positionNote;
   const placeholder = wholeWork ? `Ask anything about the ${noun}…` : "Ask about what you've heard…";
   const suggestions = suggestionsFor(wholeWork, noun);
 
+  const [dictated, setDictated] = useState(0);
   const dictation = useDictation({
     hint: title,
-    onText: (text) => setDraft((d) => (d.trim() ? `${d.trimEnd()} ${text}` : text)),
+    onText: (text) => {
+      setDraft((d) => (d.trim() ? `${d.trimEnd()} ${text}` : text));
+      setDictated((n) => n + 1);
+    },
   });
 
   // Open the latest conversation once on arrival; after that, "New conversation" really means a new one.
@@ -476,6 +566,16 @@ export function AskPanel({
   }, [messages, streaming, busy]);
 
   const offsets = useMemo(() => queue.map((q) => q.workOffsetMs ?? 0), [queue]);
+  const chapterAt = useCallback<ChapterAt>(
+    (workMs) => {
+      if (queue.length < 2) return null;
+      let index = 0;
+      for (let i = 0; i < offsets.length; i++) if (offsets[i] <= workMs) index = i;
+      const t = queue[index]?.title?.trim();
+      return t ? { short: chapterShort(t), title: t } : null;
+    },
+    [queue, offsets],
+  );
   function playAt(workMs: number) {
     let index = 0;
     for (let i = 0; i < offsets.length; i++) if (offsets[i] <= workMs) index = i;
@@ -566,9 +666,19 @@ export function AskPanel({
   const openCompose = (voice = false) => {
     setComposeByVoice(voice);
     if (voice) void dictation.start();
-    else primer.current?.focus({ preventScroll: true });
+    else {
+      // Blur first: focusing a field that still has the focus doesn't bring the keyboard back.
+      primer.current?.blur();
+      primer.current?.focus({ preventScroll: true });
+    }
     overlay.open("compose");
   };
+  // The stand-in field must never keep the focus once the composer is gone, or the next tap can't raise the keyboard.
+  useEffect(() => {
+    if (overlay.current === "compose") return;
+    if (primer.current && document.activeElement === primer.current) primer.current.blur();
+    resetIosScroll();
+  }, [overlay.current]);
   const closeCompose = () => {
     if (dictation.state === "recording") dictation.cancel();
     overlay.close();
@@ -581,14 +691,18 @@ export function AskPanel({
 
   const nothingHeard = !wholeWork && effectiveHorizon < 1000;
 
+  const scopes: [Scope, string][] = [
+    ["here", "Up to where I am"],
+    ["farthest", "Farthest I've been"],
+    ["whole", `Whole ${noun}`],
+  ];
   const scopeSwitch = (
     <div className="segmented" role="radiogroup" aria-label="What answers can draw on">
-      <button role="radio" aria-checked={!wholeWork} className={!wholeWork ? "active" : ""} onClick={() => pickScope(false)}>
-        Up to where I am
-      </button>
-      <button role="radio" aria-checked={wholeWork} className={wholeWork ? "active" : ""} onClick={() => pickScope(true)}>
-        Whole {noun}
-      </button>
+      {scopes.map(([id, label]) => (
+        <button key={id} type="button" role="radio" aria-checked={scope === id} className={scope === id ? "active" : ""} onClick={() => pickScope(id)}>
+          {label}
+        </button>
+      ))}
     </div>
   );
   const horizonControls = (
@@ -604,12 +718,12 @@ export function AskPanel({
             <Lock size={14} color="var(--terracotta)" />
             <span>
               <strong>No spoilers past {clock(effectiveHorizon)}</strong>
-              {horizon === null && positionNote && <span className="muted"> · {positionNote}</span>}
+              {horizon === null && baseNote && <span className="muted"> · {baseNote}</span>}
             </span>
             <span className="spacer" />
             {horizon !== null && (
               <Button size="sm" variant="ghost" onClick={() => setHorizon(null)}>
-                {positionNote ? "Back to my Audible position" : "Follow my position"}
+                {scope === "farthest" ? "Back to my farthest" : positionNote ? "Back to my Audible position" : "Follow my position"}
               </Button>
             )}
           </div>
@@ -646,7 +760,8 @@ export function AskPanel({
           </Empty>
           {nothingHeard ? (
             <Note tone="info">
-              You're at 0:00, so nothing has been heard yet. Move the spoiler limit later, or switch to <strong>Whole {noun}</strong>.
+              You're at 0:00, so nothing has been heard yet. Move the spoiler limit later, or switch to{" "}
+              {scope === "here" && farthest >= 1000 ? <strong>Farthest I've been</strong> : <strong>Whole {noun}</strong>}.
             </Note>
           ) : (
             <div className="ask-suggest">
@@ -661,13 +776,13 @@ export function AskPanel({
       )}
       {messages.map((m, i) => (
         <div key={`${m.id}-${i}`} className={`bubble ${m.role}`}>
-          {m.role === "assistant" ? renderAnswer(m.content, playAt) : m.role === "error" ? `No answer: ${m.content}` : m.content}
+          {m.role === "assistant" ? renderAnswer(m.content, playAt, chapterAt) : m.role === "error" ? `No answer: ${m.content}` : m.content}
           {m.role === "user" && <div className="bubble-meta">{m.whole_work ? `whole ${noun}` : `up to ${clock(m.position_ms)}`}</div>}
           {m.role === "assistant" && m.model && <div className="bubble-meta">{m.model}</div>}
         </div>
       ))}
       {notice && <Note tone="info">{notice}</Note>}
-      {streaming && <div className="bubble assistant">{renderAnswer(streaming, playAt)}</div>}
+      {streaming && <div className="bubble assistant">{renderAnswer(streaming, playAt, chapterAt)}</div>}
       {busy && !streaming && (
         <div className="bubble assistant typing" aria-label="Thinking">
           <span />
@@ -739,6 +854,7 @@ export function AskPanel({
       placeholder={placeholder}
       suggestions={suggestions}
       dictation={dictation}
+      dictated={dictated}
       focusOnOpen={!composeByVoice}
     />
   );

@@ -84,3 +84,17 @@ def test_removing_an_account_keeps_books_the_other_has(libraries):
     services.remove_account(ben)
     assert set(Book.objects.values_list("asin", flat=True)) == {"SHARED", "SAM"}
     assert Book.objects.get(asin="SHARED").account == sam
+
+
+@pytest.mark.django_db
+def test_farthest_keeps_the_high_water_mark_after_a_rewind(monkeypatch, libraries):
+    ben, _, _ = libraries
+    seen = {"SHARED": (600_000, None)}
+    monkeypatch.setattr(services.client, "fetch_positions", lambda acct, asins: seen)
+
+    services.sync_positions(ben)
+    seen["SHARED"] = (60_000, None)  # rewound in the Audible app
+    services.sync_positions(ben)
+
+    entry = ben.entries.get(book__asin="SHARED")
+    assert (entry.position_ms, entry.farthest_ms) == (60_000, 600_000)

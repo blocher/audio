@@ -77,6 +77,7 @@ class LibraryEntry(TimeStamped):
     purchase_date = models.DateTimeField(null=True, blank=True)
     percent_complete = models.FloatField(default=0)
     position_ms = models.BigIntegerField(default=0, help_text="Last listening position reported by Audible")
+    farthest_ms = models.BigIntegerField(default=0, help_text="Farthest position ever seen, even after rewinding")
     position_synced_at = models.DateTimeField(null=True, blank=True)
     is_finished = models.BooleanField(default=False)
 

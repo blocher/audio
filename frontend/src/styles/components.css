@@ -1575,6 +1575,11 @@ mark {
   vertical-align: 0.05em;
 }
 
+.bubble .cite .cite-ch {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
 .bubble .cite:hover {
   background: var(--terracotta);
   color: #fff;
@@ -2455,8 +2460,10 @@ body:has(.ask-screen) .menu-btn {
 
 .ask-options .segmented button {
   flex: 1;
+  padding-inline: 6px;
+  line-height: 1.2;
   height: 44px;
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
 }
 
 .ask-options .horizon-note {

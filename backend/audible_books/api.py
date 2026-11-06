@@ -68,6 +68,7 @@ class BookOut(Schema):
     # Listening state from the viewer's own Audible account, or another library's when it isn't in theirs.
     percent_complete: float
     position_ms: int
+    farthest_ms: int
     position_synced_at: datetime | None
     is_finished: bool
     position_account: str | None
@@ -218,6 +219,7 @@ def books_qs(user):
             purchase_date=pick("purchase_date"),
             percent_complete=Coalesce(pick("percent_complete"), Value(0.0), output_field=FloatField()),
             position_ms=Coalesce(pick("position_ms"), Value(0), output_field=BigIntegerField()),
+            farthest_ms=Coalesce(pick("farthest_ms"), Value(0), output_field=BigIntegerField()),
             position_synced_at=pick("position_synced_at"),
             is_finished=Coalesce(pick("is_finished"), Value(False)),
             position_account=pick("account__name"),

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import httpx
 from django.db import transaction
+from django.db.models import Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from core import audio
@@ -117,9 +119,12 @@ def sync_positions(account: AudibleAccount, books: list[Book] | None = None) -> 
     for entry in entries:
         if entry.book.asin in positions:
             entry.position_ms = positions[entry.book.asin][0]
+            entry.farthest_ms = max(entry.farthest_ms, entry.position_ms)
         entry.position_synced_at = now
         entry.updated_at = now
-    LibraryEntry.objects.bulk_update(entries, ["position_ms", "position_synced_at", "updated_at"], batch_size=500)
+    LibraryEntry.objects.bulk_update(
+        entries, ["position_ms", "farthest_ms", "position_synced_at", "updated_at"], batch_size=500
+    )
     return len(positions)
 
 
@@ -153,7 +158,9 @@ def download_source(book: Book, on_progress=None) -> Path:
     book.chapters = lic["chapters"]
     if lic["position_ms"]:
         LibraryEntry.objects.filter(account=account, book=book).update(
-            position_ms=lic["position_ms"], position_synced_at=timezone.now()
+            position_ms=lic["position_ms"],
+            farthest_ms=Greatest("farthest_ms", Value(lic["position_ms"])),
+            position_synced_at=timezone.now(),
         )
     book.account = account
     book.status = Book.Status.DOWNLOADED

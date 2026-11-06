@@ -79,7 +79,7 @@ export default function ModelPicker({
         <optgroup key={p.provider} label={p.error ? `${p.label} (couldn't list models; showing defaults)` : p.label}>
           {p.models.map((m) => {
             const bits = [
-              m.recommended ? "★" : "",
+              m.tier ?? (m.recommended ? "★" : ""),
               kind === "stt" && m.price_per_hour !== undefined ? `$${m.price_per_hour.toFixed(2)}/hr` : "",
               kind === "stt" && m.timestamps === "segments" ? "timestamps every few seconds" : "",
               kind === "chat" && !compact ? contextLabel(m.context) : "",
