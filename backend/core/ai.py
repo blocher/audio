@@ -46,9 +46,9 @@ PROVIDERS: dict[str, Provider] = {
             stt=True,
             chat=True,
             key_url="https://platform.openai.com/api-keys",
-            fallback_chat=("gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"),
+            fallback_chat=("gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"),
             fallback_stt=("gpt-transcribe", "whisper-1"),
-            preferred_chat=("gpt-6.1-sol", "gpt-6-astra"),
+            preferred_chat=("gpt-6-astra", "gpt-6.1-sol"),
             preferred_stt=("whisper-1", "gpt-transcribe"),
         ),
         Provider(
@@ -236,8 +236,8 @@ CHAT_TIERS: dict[str, list[tuple[str, list[str]]]] = {
         (FAST, [rf"claude-haiku-(?P<v>\d+(?:-\d)?){_DATED}"]),
     ],
     "openai": [
-        (BEST, [rf"gpt-{_V}-sol{_DATED}", rf"gpt-{_V}{_DATED}"]),
-        (BALANCED, [rf"gpt-{_V}-astra{_DATED}", rf"gpt-{_V}-mini{_DATED}"]),
+        (BEST, [rf"gpt-{_V}-astra{_DATED}", rf"gpt-{_V}{_DATED}"]),
+        (BALANCED, [rf"gpt-{_V}-sol{_DATED}", rf"gpt-{_V}-mini{_DATED}"]),
         (FAST, [rf"gpt-{_V}-luna{_DATED}", rf"gpt-{_V}-nano{_DATED}"]),
     ],
     "gemini": [
@@ -314,7 +314,7 @@ LISTERS = {
 def provider_models(provider: str, refresh: bool = False) -> dict:
     """{"chat": [...], "stt": [...], "error": str} for one configured provider."""
     p = PROVIDERS[provider]
-    key = f"ai-models:v2:{provider}:{hashlib.sha256(api_key(provider).encode()).hexdigest()[:12]}"
+    key = f"ai-models:v3:{provider}:{hashlib.sha256(api_key(provider).encode()).hexdigest()[:12]}"
     if not refresh and (cached := cache.get(key)):
         return cached
     error = ""

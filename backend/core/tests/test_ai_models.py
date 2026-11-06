@@ -26,8 +26,8 @@ def test_claude_keeps_the_newest_opus_sonnet_and_haiku_only():
 
 def test_other_providers_get_one_model_per_tier():
     assert picked("openai", ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna", "gpt-5-mini", "o3"]) == [
-        ("gpt-6.1-sol", BEST),
-        ("gpt-6-astra", BALANCED),
+        ("gpt-6-astra", BEST),
+        ("gpt-6.1-sol", BALANCED),
         ("gpt-6-luna", FAST),
     ]
     assert picked(
