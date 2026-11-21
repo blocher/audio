@@ -14,6 +14,7 @@ from django.db import models
 from django.utils import timezone
 
 from .models import Job
+from .tenancy import current_household_id, use_household
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class JobCancelled(Exception):
 
 def enqueue(kind: str, title: str, task, *args, target: models.Model | None = None, **kwargs) -> Job:
     job = Job.objects.create(
+        household_id=current_household_id(),
         kind=kind,
         title=title[:300],
         target_type=target._meta.model_name if target is not None else "",
@@ -81,7 +83,8 @@ def running(job_id: int):
     job.save(update_fields=["status", "started_at", "updated_at"])
     handle = JobHandle(job, resumed_from=resumed_from)
     try:
-        yield handle
+        with use_household(job.household_id):
+            yield handle
     except JobCancelled:
         Job.objects.filter(pk=job.pk).update(finished_at=timezone.now(), message="Cancelled")
         return

@@ -34,9 +34,17 @@ def create_playlist(
     cover_url: str = "",
     batch: str = "",
     author: str = "",
+    household_id: int | None = None,
 ) -> Playlist:
+    from core.tenancy import current_household_id
+
     playlist = Playlist.objects.create(
-        title=title[:200], account=account, cover_url=cover_url, batch=batch, author=author[:200]
+        household_id=household_id or (account.household_id if account else None) or current_household_id(),
+        title=title[:200],
+        account=account,
+        cover_url=cover_url,
+        batch=batch,
+        author=author[:200],
     )
     for n, item in enumerate(items):
         if isinstance(item, packing.Item):
@@ -121,13 +129,15 @@ def _track_info(upload: Upload) -> dict:
 def upload_item(api: client.Api, item: PlaylistItem, use_optimized: bool, on_progress=None) -> dict:
     path = item_file(item, use_optimized)
     sha = client.sha256(path)
-    cached = Upload.objects.filter(sha256=sha).first()
+    household = Playlist.objects.filter(pk=item.playlist_id).values_list("household_id", flat=True).first()
+    cached = Upload.objects.filter(household_id=household, sha256=sha).first()
     if cached:
         return _track_info(cached)
     result = api.upload_audio(path, on_progress=on_progress, sha=sha)
     info = result.get("transcodedInfo") or {}
     # get_or_create, because the same file can appear twice on a card and upload on two threads at once.
     upload, _ = Upload.objects.get_or_create(
+        household_id=household,
         sha256=sha,
         defaults={
             "track_url": f"yoto:#{result['transcodedSha256']}",
@@ -253,7 +263,8 @@ def upload_cover(api: client.Api, playlist: Playlist) -> None:
 def sync_playlist(playlist: Playlist, on_progress=None) -> Playlist:
     report = on_progress or (lambda f, m=None: None)
     if playlist.account is None:
-        playlist.account = YotoAccount.objects.exclude(encrypted_tokens="").first()
+        connected = YotoAccount.objects.filter(household_id=playlist.household_id).exclude(encrypted_tokens="")
+        playlist.account = connected.first()
         if playlist.account is None:
             raise client.YotoError("Connect a Yoto account first.")
         playlist.save(update_fields=["account"])

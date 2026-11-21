@@ -15,7 +15,8 @@ from ninja.errors import HttpError
 from . import audio, packing
 from .jobs import enqueue
 from .models import Job, Star, Track
-from .secrets import load_credential, mask, save_credential
+from .secrets import SITE_SERVICES, load_credential, mask, save_credential
+from .tenancy import household_id
 
 router = Router(tags=["core"])
 
@@ -82,7 +83,7 @@ class JobOut(Schema):
 
 @router.get("/jobs", response=list[JobOut])
 def list_jobs(request, active: bool = False, target_type: str = "", target_id: int | None = None, limit: int = 50):
-    qs = Job.objects.all()
+    qs = Job.objects.filter(household_id=household_id(request))
     if active:
         qs = qs.filter(status__in=[Job.Status.QUEUED, Job.Status.RUNNING])
     if target_type:
@@ -94,7 +95,7 @@ def list_jobs(request, active: bool = False, target_type: str = "", target_id: i
 
 @router.post("/jobs/{job_id}/cancel", response=JobOut)
 def cancel_job(request, job_id: int):
-    job = get_object_or_404(Job, pk=job_id)
+    job = get_object_or_404(Job, pk=job_id, household_id=household_id(request))
     if job.status in (Job.Status.QUEUED, Job.Status.RUNNING):
         was_queued = job.status == Job.Status.QUEUED
         job.status = Job.Status.CANCELLED
@@ -108,7 +109,8 @@ def cancel_job(request, job_id: int):
 
 @router.delete("/jobs/finished")
 def clear_finished_jobs(request):
-    deleted, _ = Job.objects.exclude(status__in=[Job.Status.QUEUED, Job.Status.RUNNING]).delete()
+    mine = Job.objects.filter(household_id=household_id(request))
+    deleted, _ = mine.exclude(status__in=[Job.Status.QUEUED, Job.Status.RUNNING]).delete()
     return {"deleted": deleted}
 
 
@@ -165,14 +167,38 @@ ENV_FALLBACK = {
 }
 
 
-def setting(service: str, key: str):
+AI_SERVICES = {"openai", "anthropic", "gemini", "xai", "groq"}
+
+
+def _household():
+    from .models import Household
+    from .tenancy import current_household_id
+
+    hid = current_household_id()
+    return Household.objects.select_related("ai_keys_from").filter(pk=hid).first() if hid else None
+
+
+def lookup(service: str, key: str) -> tuple[object, str]:
+    """A setting's value and where it came from: "own", "shared" (another household's AI key), "server" or ""."""
     stored = load_credential(service)
     if stored.get(key) not in (None, ""):
-        return stored[key]
-    if env := ENV_FALLBACK.get((service, key)):
-        if value := getattr(settings, env, ""):
-            return value
-    return DEFAULTS.get(service, {}).get(key)
+        return stored[key], "own"
+    household = _household() if service in AI_SERVICES else None
+    sponsor = household.ai_keys_from if household else None
+    if sponsor is not None:
+        shared = load_credential(service, sponsor.pk)
+        if shared.get(key) not in (None, ""):
+            return shared[key], "shared"
+    env = ENV_FALLBACK.get((service, key))
+    # Keys in the server's environment are the first household's; others only get them when it shares its keys.
+    env_allowed = service not in AI_SERVICES or any(h is not None and h.uses_server_keys for h in (household, sponsor))
+    if env and env_allowed and (value := getattr(settings, env, "")):
+        return value, "server"
+    return DEFAULTS.get(service, {}).get(key), ""
+
+
+def setting(service: str, key: str):
+    return lookup(service, key)[0]
 
 
 def preferences() -> dict:
@@ -191,8 +217,10 @@ def get_settings(request):
     for service in set(SECRET_FIELDS) | set(PLAIN_FIELDS):
         values = {}
         for key in SECRET_FIELDS.get(service, []):
-            value = setting(service, key) or ""
-            values[key] = {"set": bool(value), "masked": mask(value)}
+            value, source = lookup(service, key)
+            value = value or ""
+            # Someone else's key is only ever shown as "set", never even masked.
+            values[key] = {"set": bool(value), "masked": mask(value) if source == "own" else "", "source": source}
         for key in PLAIN_FIELDS.get(service, []):
             values[key] = setting(service, key)
         out[service] = values
@@ -201,7 +229,11 @@ def get_settings(request):
         "ffmpeg": shutil.which(settings.FFMPEG_BINARY) is not None,
         "yoto_redirect_uri": f"{settings.PUBLIC_BASE_URL}/api/yoto/callback",
         "yoto_scopes": yoto_scopes(),
+        "yoto_ready": bool(setting("yoto", "client_id")),
+        "email": bool(settings.EMAIL_CONFIGURED),
     }
+    if not request.user.is_superuser:
+        out["yoto"]["client_secret"]["masked"] = ""
     from .ai import PROVIDERS
 
     out["providers"] = [
@@ -238,6 +270,8 @@ def put_settings(request, payload: SettingsIn):
     allowed = set(SECRET_FIELDS.get(payload.service, [])) | set(PLAIN_FIELDS.get(payload.service, []))
     if not allowed:
         raise HttpError(400, "Unknown settings group")
+    if payload.service in SITE_SERVICES and not request.user.is_superuser:
+        raise HttpError(403, "Only a super admin can change the Yoto app")
     save_credential(payload.service, {k: v for k, v in payload.values.items() if k in allowed})
     return get_settings(request)
 
@@ -247,7 +281,7 @@ def put_settings(request, payload: SettingsIn):
 
 @router.get("/tracks", response=list[TrackOut])
 def list_tracks(request, ids: str = "", book_id: int | None = None, collection_id: int | None = None):
-    qs = Track.objects.select_related("transcript")
+    qs = Track.objects.for_household(household_id(request)).select_related("transcript")
     if ids:
         qs = qs.filter(pk__in=[int(i) for i in ids.split(",") if i.strip().isdigit()])
     if book_id:
@@ -267,7 +301,7 @@ class OptimizeIn(Schema):
 def optimize_tracks(request, payload: OptimizeIn):
     from .tasks import optimize_tracks_task
 
-    tracks = Track.objects.filter(pk__in=payload.track_ids).exclude(file="")
+    tracks = Track.objects.for_household(household_id(request)).filter(pk__in=payload.track_ids).exclude(file="")
     if not tracks.exists():
         raise HttpError(400, "None of those tracks have audio yet")
     label = f"{payload.kbps} kbps {'mono' if payload.mono else 'stereo'}"
@@ -315,8 +349,10 @@ def _item_bytes(track: Track, kbps: int | None, use_optimized: bool) -> int:
 
 
 def build_groups(groups: list[dict], kbps: int | None, use_optimized: bool) -> list[packing.Group]:
+    from .tenancy import current_household_id
+
     ids = [int(t) for g in groups for t in g.get("track_ids", [])]
-    tracks = Track.objects.in_bulk(ids)
+    tracks = Track.objects.for_household(current_household_id()).in_bulk(ids)
     result = []
     for g in groups:
         items = [
@@ -395,14 +431,43 @@ def storage(request):
     root = Path(settings.MEDIA_ROOT)
     root.mkdir(parents=True, exist_ok=True)
     usage = shutil.disk_usage(root)
-    agg = Track.objects.aggregate(original=Sum("size_bytes"), optimized=Sum("optimized_size_bytes"))
+    mine = Track.objects.for_household(household_id(request))
+    agg = mine.aggregate(original=Sum("size_bytes"), optimized=Sum("optimized_size_bytes"))
     return {
         "disk_total": usage.total,
         "disk_free": usage.free,
         "tracks_original_bytes": agg["original"] or 0,
         "tracks_optimized_bytes": agg["optimized"] or 0,
-        "track_count": Track.objects.count(),
+        "track_count": mine.count(),
     }
+
+
+def media_household(relative: str) -> int | None:
+    """Whose audio file this is, so one household can't play another's. Cached: players fetch in many ranges."""
+    from django.core.cache import cache
+    from django.db.models import Q
+
+    key = f"media-household:{relative}"
+    if (cached := cache.get(key)) is not None:
+        return cached or None
+    track = (
+        Track.objects.filter(Q(file=relative) | Q(optimized_file=relative))
+        .select_related("book", "episode__podcast", "collection")
+        .first()
+    )
+    owner = track_household_id(track) if track else None
+    cache.set(key, owner or 0, 600)
+    return owner
+
+
+def track_household_id(track: Track) -> int | None:
+    if track.book_id:
+        return track.book.household_id
+    if track.episode_id:
+        return track.episode.podcast.household_id
+    if track.collection_id:
+        return track.collection.household_id
+    return None
 
 
 _RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
@@ -414,6 +479,8 @@ def media(request, path: str):
     root = Path(settings.MEDIA_ROOT).resolve()
     target = (root / path).resolve()
     if root not in target.parents or not target.is_file():
+        raise Http404()
+    if media_household(str(target.relative_to(root))) != household_id(request):
         raise Http404()
     if accel := os.getenv("MEDIA_ACCEL_PREFIX"):
         response = HttpResponse()
@@ -459,13 +526,13 @@ class StarOut(Schema):
     starred_at: datetime = Field(alias="created_at")
 
 
-def _star_target(kind: Star.Kind, pk: int):
+def _star_target(kind: Star.Kind, pk: int, household_id: int):
     from audible_books.models import Book
     from local_audio.models import Collection
     from podcasts.models import Podcast
 
     model = {Star.Kind.BOOK: Book, Star.Kind.PODCAST: Podcast, Star.Kind.FOLDER: Collection}[kind]
-    return get_object_or_404(model, pk=pk)
+    return get_object_or_404(model, pk=pk, household_id=household_id)
 
 
 @router.get("/stars", response=list[StarOut])
@@ -475,7 +542,8 @@ def list_stars(request):
 
 @router.put("/stars/{kind}/{pk}", response=StarOut)
 def add_star(request, kind: Star.Kind, pk: int):
-    star, _ = Star.objects.get_or_create(user=request.user, kind=kind, **{kind.value: _star_target(kind, pk)})
+    target = _star_target(kind, pk, household_id(request))
+    star, _ = Star.objects.get_or_create(user=request.user, kind=kind, **{kind.value: target})
     return star
 
 

@@ -3,6 +3,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from django.db.models import Q
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from ninja import Field, File, Form, Router, Schema, UploadedFile
@@ -12,6 +13,7 @@ from core import ai
 from core.api import JobOut
 from core.jobs import enqueue
 from core.models import Track
+from core.tenancy import current_household_id, household_id, use_household
 
 from . import ask, stt
 from .models import Conversation, Message, Transcript
@@ -29,7 +31,7 @@ class TranscribeIn(Schema):
 
 
 def _pending(track_ids: list[int], force: bool):
-    qs = Track.objects.filter(pk__in=track_ids).exclude(file="")
+    qs = Track.objects.for_household(current_household_id()).filter(pk__in=track_ids).exclude(file="")
     if not force:
         qs = qs.exclude(transcript__status=Transcript.Status.READY)
     return qs
@@ -141,8 +143,27 @@ class ConversationDetailOut(ConversationOut):
 
 
 def mine(request):
-    """Conversations are private to whoever started them."""
-    return Conversation.objects.filter(owner=request.user)
+    """Conversations are private to whoever started them, and stay with their household's library."""
+    hid = household_id(request)
+    return Conversation.objects.filter(owner=request.user).filter(
+        Q(book__household_id=hid) | Q(episode__podcast__household_id=hid) | Q(collection__household_id=hid)
+    )
+
+
+def _check_work(request, payload: "WorkQuery") -> None:
+    """A conversation can only be about something in the asker's own library."""
+    from audible_books.models import Book
+    from local_audio.models import Collection
+    from podcasts.models import Episode
+
+    hid = household_id(request)
+    ok = (
+        (payload.book_id and Book.objects.filter(pk=payload.book_id, household_id=hid).exists())
+        or (payload.episode_id and Episode.objects.filter(pk=payload.episode_id, podcast__household_id=hid).exists())
+        or (payload.collection_id and Collection.objects.filter(pk=payload.collection_id, household_id=hid).exists())
+    )
+    if not ok:
+        raise HttpError(404, "Not found")
 
 
 @router.get("/conversations", response=list[ConversationOut])
@@ -163,6 +184,7 @@ def list_conversations(
 def create_conversation(request, payload: WorkQuery):
     if not (payload.book_id or payload.episode_id or payload.collection_id):
         raise HttpError(400, "Pick a book, episode or folder")
+    _check_work(request, payload)
     return Conversation.objects.create(owner=request.user, **payload.dict())
 
 
@@ -213,7 +235,13 @@ def ask_question(request, cid: int, payload: AskIn):
     """Streams newline-delimited JSON events: {"type":"text"} deltas, then {"type":"done"} or {"type":"error"}."""
     conversation = get_object_or_404(mine(request).select_related("book", "episode__podcast", "collection"), pk=cid)
 
+    hid = household_id(request)
+
     def events():
+        with use_household(hid):  # the stream is read after the view (and its middleware) have returned
+            yield from answer()
+
+    def answer():
         try:
             for event in ask.stream_answer(
                 conversation,

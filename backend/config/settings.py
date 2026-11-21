@@ -41,6 +41,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "core.middleware.KeepSignedIn",
+    "core.tenancy.CurrentHousehold",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -135,6 +136,29 @@ FFMPEG_BINARY = os.getenv("FFMPEG_BINARY", "ffmpeg")
 FFPROBE_BINARY = os.getenv("FFPROBE_BINARY", "ffprobe")
 # Server-side folder import is only offered where the server can see the user's disk (local dev).
 LOCAL_IMPORT_ROOTS = [Path(p).expanduser() for p in os.getenv("LOCAL_IMPORT_ROOTS", "").split(",") if p.strip()]
+
+# Invitation emails. Without EMAIL_HOST nothing is sent; the person inviting copies the link instead.
+_email_host = os.getenv("EMAIL_HOST", "")
+EMAIL_CONFIGURED = bool(_email_host)
+MAILERS = {
+    "default": (
+        {
+            "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+            "OPTIONS": {
+                "host": _email_host,
+                "port": int(os.getenv("EMAIL_PORT", "587")),
+                "username": os.getenv("EMAIL_HOST_USER", ""),
+                "password": os.getenv("EMAIL_HOST_PASSWORD", ""),
+                "use_tls": os.getenv("EMAIL_USE_TLS", "true").lower() == "true",
+                "timeout": 20,
+            },
+        }
+        if _email_host
+        else {"BACKEND": "django.core.mail.backends.console.EmailBackend"}
+    )
+}
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Audio <audio@benlocher.com>")
+INVITE_DAYS = 14
 
 LOGGING = {
     "version": 1,

@@ -1,9 +1,10 @@
 from django.db import models
 
-from core.models import TimeStamped
+from core.models import InHousehold, TimeStamped
 
 
-class YotoAccount(TimeStamped):
+class YotoAccount(InHousehold, TimeStamped):
+    household = models.ForeignKey("core.Household", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=100, default="Family")
     email = models.CharField(max_length=200, blank=True)
     encrypted_tokens = models.TextField(blank=True)
@@ -19,7 +20,7 @@ class YotoAccount(TimeStamped):
         return bool(self.encrypted_tokens)
 
 
-class Playlist(TimeStamped):
+class Playlist(InHousehold, TimeStamped):
     """A Yoto Make-Your-Own card's contents, built here and synced to the Yoto account."""
 
     class Status(models.TextChoices):
@@ -29,6 +30,7 @@ class Playlist(TimeStamped):
         CHANGED = "changed", "Changed since sync"
         FAILED = "failed"
 
+    household = models.ForeignKey("core.Household", on_delete=models.CASCADE, related_name="+")
     account = models.ForeignKey(
         YotoAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name="playlists"
     )
@@ -69,12 +71,16 @@ class PlaylistItem(models.Model):
         ordering = ["position", "id"]
 
 
-class Upload(TimeStamped):
+class Upload(InHousehold, TimeStamped):
     """Cache of files already transcoded by Yoto, keyed by the local file's content hash."""
 
-    sha256 = models.CharField(max_length=64, unique=True)
+    household = models.ForeignKey("core.Household", on_delete=models.CASCADE, related_name="+")
+    sha256 = models.CharField(max_length=64)
     track_url = models.CharField(max_length=200)
     duration = models.FloatField(default=0)
     file_size = models.BigIntegerField(default=0)
     channels = models.CharField(max_length=10, blank=True)
     format = models.CharField(max_length=10, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["household", "sha256"], name="one_upload_per_household")]

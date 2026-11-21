@@ -1,10 +1,11 @@
 from django.db import models
 
-from core.models import TimeStamped
+from core.models import InHousehold, TimeStamped
 
 
-class Podcast(TimeStamped):
-    feed_url = models.URLField(max_length=1000, unique=True)
+class Podcast(InHousehold, TimeStamped):
+    household = models.ForeignKey("core.Household", on_delete=models.CASCADE, related_name="+")
+    feed_url = models.URLField(max_length=1000)
     apple_url = models.URLField(max_length=1000, blank=True)
     title = models.CharField(max_length=500)
     author = models.CharField(max_length=300, blank=True)
@@ -15,6 +16,7 @@ class Podcast(TimeStamped):
 
     class Meta:
         ordering = ["title"]
+        constraints = [models.UniqueConstraint(fields=["household", "feed_url"], name="one_feed_per_household")]
 
     def __str__(self) -> str:
         return self.title

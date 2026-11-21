@@ -1,20 +1,38 @@
-"""Managing the people who can sign in. Admins manage everyone; everyone else manages only themselves."""
+"""The people who can sign in, the households they belong to, and invitations.
 
-from datetime import datetime
+Super admins (``is_superuser``) see and manage everyone and invite new people. Everyone else sees the people in their
+own household and manages only themselves.
+"""
 
+import logging
+import secrets
+from datetime import datetime, timedelta
+
+from django.conf import settings
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
 from audible_books.models import AudibleAccount, Listener
 
+from .models import Household, Invite, Member
+from .tenancy import household_id, membership
+
+log = logging.getLogger(__name__)
 router = Router(tags=["users"])
 User = get_user_model()
+
+
+class AccountRef(Schema):
+    id: int
+    name: str
 
 
 class PersonOut(Schema):
@@ -25,6 +43,12 @@ class PersonOut(Schema):
     is_admin: bool
     audible_account_id: int | None
     last_login: datetime | None
+    household_id: int
+    household_name: str
+    # The Audible accounts in their household, to pick theirs from.
+    audible_accounts: list[AccountRef]
+    primary_use: str
+    onboarded: bool
     is_me: bool = False
 
     @staticmethod
@@ -36,6 +60,27 @@ class PersonOut(Schema):
         listener = getattr(obj, "audible_listener", None)
         return listener.account_id if listener else None
 
+    @staticmethod
+    def resolve_household_id(obj) -> int:
+        return membership(obj).household_id
+
+    @staticmethod
+    def resolve_household_name(obj) -> str:
+        return membership(obj).household.name
+
+    @staticmethod
+    def resolve_audible_accounts(obj) -> list[dict]:
+        accounts = AudibleAccount.objects.filter(household_id=membership(obj).household_id).order_by("name", "pk")
+        return [{"id": a.pk, "name": a.name} for a in accounts]
+
+    @staticmethod
+    def resolve_primary_use(obj) -> str:
+        return membership(obj).primary_use
+
+    @staticmethod
+    def resolve_onboarded(obj) -> bool:
+        return membership(obj).onboarded_at is not None
+
 
 class PersonIn(Schema):
     username: str
@@ -44,6 +89,7 @@ class PersonIn(Schema):
     password: str
     is_admin: bool = False
     audible_account_id: int | None = None
+    household_id: int | None = None  # default: the admin's own household
 
 
 class PersonPatch(Schema):
@@ -53,6 +99,7 @@ class PersonPatch(Schema):
     is_admin: bool | None = None
     # null clears it (back to the first connected account); leaving it out leaves it alone.
     audible_account_id: int | None = None
+    household_id: int | None = None  # move them to another household (super admins only)
 
 
 class PasswordIn(Schema):
@@ -62,18 +109,22 @@ class PasswordIn(Schema):
 
 def _require_admin(request):
     if not request.user.is_superuser:
-        raise HttpError(403, "Only an admin can do that")
+        raise HttpError(403, "Only a super admin can do that")
+
+
+def _people():
+    return User.objects.select_related("audible_listener", "member__household")
 
 
 def _person(request, user_id: int):
-    """The user to act on: anyone for an admin, only yourself otherwise."""
+    """The user to act on: anyone for a super admin, only yourself otherwise."""
     if user_id != request.user.pk:
         _require_admin(request)
-    return get_object_or_404(User.objects.select_related("audible_listener"), pk=user_id)
+    return get_object_or_404(_people(), pk=user_id)
 
 
 def _out(request, user):
-    user = User.objects.select_related("audible_listener").get(pk=user.pk)
+    user = _people().get(pk=user.pk)
     user.is_me = user.pk == request.user.pk
     return user
 
@@ -90,17 +141,22 @@ def _clean_username(username: str, user=None) -> str:
     return username
 
 
-def _clean_email(email: str) -> str:
+def _clean_email(email: str, user=None) -> str:
     email = email.strip()
     if email:
         try:
             validate_email(email)
         except ValidationError as exc:
             raise HttpError(400, "That email address doesn't look right") from exc
+        taken = User.objects.filter(email__iexact=email)
+        if user is not None:
+            taken = taken.exclude(pk=user.pk)
+        if taken.exists():
+            raise HttpError(400, f"Someone already signs in with {email}")
     return email
 
 
-def _check_password(password: str, user=None) -> None:
+def check_password_strength(password: str, user=None) -> None:
     try:
         validate_password(password, user)
     except ValidationError as exc:
@@ -111,7 +167,7 @@ def _set_audible_account(user, account_id: int | None) -> None:
     if not account_id:
         Listener.objects.filter(user=user).delete()
         return
-    account = get_object_or_404(AudibleAccount, pk=account_id)
+    account = get_object_or_404(AudibleAccount, pk=account_id, household_id=membership(user).household_id)
     Listener.objects.update_or_create(user=user, defaults={"account": account})
 
 
@@ -121,9 +177,9 @@ def _other_admins(user) -> bool:
 
 @router.get("", response=list[PersonOut])
 def list_people(request):
-    people = User.objects.select_related("audible_listener").order_by("first_name", "username")
+    people = _people().order_by("first_name", "username")
     if not request.user.is_superuser:
-        people = people.filter(pk=request.user.pk)
+        people = people.filter(member__household_id=household_id(request))
     people = list(people)
     for person in people:
         person.is_me = person.pk == request.user.pk
@@ -134,6 +190,7 @@ def list_people(request):
 @transaction.atomic
 def add_person(request, payload: PersonIn):
     _require_admin(request)
+    household = get_object_or_404(Household, pk=payload.household_id or household_id(request))
     user = User(
         username=_clean_username(payload.username),
         first_name=payload.first_name.strip()[:150],
@@ -141,14 +198,15 @@ def add_person(request, payload: PersonIn):
         is_superuser=payload.is_admin,
         is_staff=payload.is_admin,
     )
-    _check_password(payload.password, user)
+    check_password_strength(payload.password, user)
     user.set_password(payload.password)
     user.save()
+    Member.objects.update_or_create(user=user, defaults={"household": household, "onboarded_at": timezone.now()})
     _set_audible_account(user, payload.audible_account_id)
     return _out(request, user)
 
 
-@router.patch("/{user_id}", response=PersonOut)
+@router.patch("/{int:user_id}", response=PersonOut)
 @transaction.atomic
 def update_person(request, user_id: int, payload: PersonPatch):
     user = _person(request, user_id)
@@ -158,26 +216,32 @@ def update_person(request, user_id: int, payload: PersonPatch):
     if "first_name" in fields:
         user.first_name = (payload.first_name or "").strip()[:150]
     if "email" in fields:
-        user.email = _clean_email(payload.email or "")
+        user.email = _clean_email(payload.email or "", user)
     if "is_admin" in fields and payload.is_admin != user.is_superuser:
         _require_admin(request)
         if not payload.is_admin and not _other_admins(user):
-            raise HttpError(400, "Someone has to stay an admin")
+            raise HttpError(400, "Someone has to stay a super admin")
         user.is_superuser = user.is_staff = bool(payload.is_admin)
     user.save()
+    if fields.get("household_id") and fields["household_id"] != membership(user).household_id:
+        _require_admin(request)
+        household = get_object_or_404(Household, pk=payload.household_id)
+        Member.objects.filter(user=user).update(household=household)
+        user._member_cache = None
+        Listener.objects.filter(user=user).delete()  # their Audible account was in the old household
     if "audible_account_id" in fields:
         _set_audible_account(user, payload.audible_account_id)
     return _out(request, user)
 
 
-@router.post("/{user_id}/password")
+@router.post("/{int:user_id}/password")
 def set_password(request, user_id: int, payload: PasswordIn):
     user = _person(request, user_id)
     is_me = user.pk == request.user.pk
     # Changing your own needs the current one, so a borrowed signed-in phone can't lock you out.
     if is_me and not user.check_password(payload.current_password):
         raise HttpError(400, "Your current password isn't right")
-    _check_password(payload.password, user)
+    check_password_strength(payload.password, user)
     user.set_password(payload.password)
     user.save(update_fields=["password"])
     if is_me:
@@ -185,11 +249,191 @@ def set_password(request, user_id: int, payload: PasswordIn):
     return {"ok": True}
 
 
-@router.delete("/{user_id}")
+@router.delete("/{int:user_id}")
 def remove_person(request, user_id: int):
     _require_admin(request)
     user = get_object_or_404(User, pk=user_id)
     if user.pk == request.user.pk:
         raise HttpError(400, "You can't remove yourself")
     user.delete()
+    return {"ok": True}
+
+
+# ---------- households ----------
+
+
+class HouseholdOut(Schema):
+    id: int
+    name: str
+    members: list[str]
+    shares_ai_keys_from: str | None
+    is_mine: bool
+
+
+def _household_out(request, household: Household) -> dict:
+    members = Member.objects.filter(household=household).select_related("user").order_by("user__first_name")
+    return {
+        "id": household.pk,
+        "name": household.name,
+        "members": [m.user.first_name or m.user.username for m in members],
+        "shares_ai_keys_from": household.ai_keys_from.name if household.ai_keys_from else None,
+        "is_mine": household.pk == household_id(request),
+    }
+
+
+@router.get("/households", response=list[HouseholdOut])
+def list_households(request):
+    _require_admin(request)
+    return [_household_out(request, h) for h in Household.objects.select_related("ai_keys_from")]
+
+
+class HouseholdPatch(Schema):
+    name: str | None = None
+    # true: use the signed-in super admin's household's AI keys; false: only their own.
+    share_my_ai_keys: bool | None = None
+
+
+@router.patch("/households/{hid}", response=HouseholdOut)
+def update_household(request, hid: int, payload: HouseholdPatch):
+    household = get_object_or_404(Household, pk=hid)
+    if hid != household_id(request) or payload.share_my_ai_keys is not None:
+        _require_admin(request)
+    if payload.name is not None and payload.name.strip():
+        household.name = payload.name.strip()[:150]
+    if payload.share_my_ai_keys is not None and hid != household_id(request):
+        household.ai_keys_from_id = household_id(request) if payload.share_my_ai_keys else None
+    household.save()
+    return _household_out(request, Household.objects.select_related("ai_keys_from").get(pk=hid))
+
+
+# ---------- invitations ----------
+
+
+class InviteOut(Schema):
+    id: int
+    email: str
+    name: str
+    joining: str | None
+    share_ai_keys: bool
+    make_admin: bool
+    created_at: datetime
+    expires_at: datetime
+    emailed_at: datetime | None
+    expired: bool
+    link: str
+    invited_by: str
+
+    @staticmethod
+    def resolve_joining(obj: Invite) -> str | None:
+        return obj.household.name if obj.household else None
+
+    @staticmethod
+    def resolve_expired(obj: Invite) -> bool:
+        return obj.expires_at < timezone.now()
+
+    @staticmethod
+    def resolve_link(obj: Invite) -> str:
+        return invite_link(obj)
+
+    @staticmethod
+    def resolve_invited_by(obj: Invite) -> str:
+        return (obj.invited_by.first_name or obj.invited_by.username) if obj.invited_by else ""
+
+
+class InviteIn(Schema):
+    email: str
+    name: str = ""
+    # True: they share the inviter's library (Audible, Yoto, everything). False: a library of their own.
+    join_my_library: bool = False
+    share_ai_keys: bool = False
+    make_admin: bool = False
+
+
+class InviteSent(Schema):
+    invite: InviteOut
+    emailed: bool
+    email_error: str = ""
+
+
+def invite_link(invite: Invite) -> str:
+    return f"{settings.PUBLIC_BASE_URL}/invite/{invite.token}"
+
+
+def send_invite(invite: Invite) -> tuple[bool, str]:
+    """Email the invitation. Returns (sent, error); with no mail server set up, nothing is sent."""
+    if not settings.EMAIL_CONFIGURED:
+        return False, ""
+    inviter = invite.invited_by.first_name or invite.invited_by.username if invite.invited_by else "Someone"
+    greeting = f"Hi {invite.name}," if invite.name else "Hi,"
+    what = (
+        f"to share {invite.household.name}" if invite.household else "to set up your own audio library"
+    )
+    body = (
+        f"{greeting}\n\n"
+        f"{inviter} has invited you {what} on Audio, a private family audiobook app. You can use it to put "
+        "audiobooks and podcasts on Yoto cards, and to ask questions about the book you're listening to.\n\n"
+        f"Open this link to accept and choose a password:\n{invite_link(invite)}\n\n"
+        "It takes about five minutes, and the app walks you through each step. "
+        f"The link works for {settings.INVITE_DAYS} days.\n"
+    )
+    try:
+        send_mail(f"{inviter} invited you to Audio", body, None, [invite.email])
+    except Exception as exc:  # noqa: BLE001 - the link can still be shared by hand
+        log.warning("Couldn't email invite %s: %s", invite.pk, exc)
+        return False, str(exc)[:200]
+    invite.emailed_at = timezone.now()
+    invite.save(update_fields=["emailed_at", "updated_at"])
+    return True, ""
+
+
+def _pending_invites():
+    return Invite.objects.filter(accepted_at__isnull=True).select_related("household", "invited_by")
+
+
+@router.get("/invites", response=list[InviteOut])
+def list_invites(request):
+    _require_admin(request)
+    return _pending_invites()
+
+
+@router.post("/invites", response=InviteSent)
+def create_invite(request, payload: InviteIn):
+    _require_admin(request)
+    email = payload.email.strip().lower()
+    try:
+        validate_email(email)
+    except ValidationError as exc:
+        raise HttpError(400, "That email address doesn't look right") from exc
+    if User.objects.filter(email__iexact=email).exists() or User.objects.filter(username__iexact=email).exists():
+        raise HttpError(400, f"{email} already has a login")
+    # Inviting the same address again replaces the earlier invitation, so only the newest link works.
+    _pending_invites().filter(email__iexact=email).delete()
+    invite = Invite.objects.create(
+        email=email,
+        name=payload.name.strip()[:150],
+        token=secrets.token_urlsafe(32),
+        invited_by=request.user,
+        household_id=household_id(request) if payload.join_my_library else None,
+        share_ai_keys=payload.share_ai_keys and not payload.join_my_library,
+        make_admin=payload.make_admin,
+        expires_at=timezone.now() + timedelta(days=settings.INVITE_DAYS),
+    )
+    emailed, error = send_invite(invite)
+    return {"invite": _pending_invites().get(pk=invite.pk), "emailed": emailed, "email_error": error}
+
+
+@router.post("/invites/{invite_id}/resend", response=InviteSent)
+def resend_invite(request, invite_id: int):
+    _require_admin(request)
+    invite = get_object_or_404(_pending_invites(), pk=invite_id)
+    invite.expires_at = timezone.now() + timedelta(days=settings.INVITE_DAYS)
+    invite.save(update_fields=["expires_at", "updated_at"])
+    emailed, error = send_invite(invite)
+    return {"invite": _pending_invites().get(pk=invite.pk), "emailed": emailed, "email_error": error}
+
+
+@router.delete("/invites/{invite_id}")
+def cancel_invite(request, invite_id: int):
+    _require_admin(request)
+    get_object_or_404(_pending_invites(), pk=invite_id).delete()
     return {"ok": True}

@@ -1,11 +1,12 @@
 from django.db import models
 
-from core.models import TimeStamped
+from core.models import InHousehold, TimeStamped
 
 
-class AudibleAccount(TimeStamped):
+class AudibleAccount(InHousehold, TimeStamped):
     """One person's Audible login, registered as a virtual device. Auth data is Fernet-encrypted."""
 
+    household = models.ForeignKey("core.Household", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=100, help_text="Whose library this is, e.g. “Ben”")
     locale = models.CharField(max_length=8, default="us")
     email = models.CharField(max_length=200, blank=True)
@@ -26,7 +27,7 @@ class AudibleAccount(TimeStamped):
         return bool(self.encrypted_auth)
 
 
-class Book(TimeStamped):
+class Book(InHousehold, TimeStamped):
     class Status(models.TextChoices):
         REMOTE = "remote", "In library"
         DOWNLOADING = "downloading"
@@ -37,8 +38,9 @@ class Book(TimeStamped):
 
     # A book is stored once even when family sharing puts it in several libraries; each library's copy is a
     # LibraryEntry. ``account`` is the one used to download it, and is always one of the libraries it's in.
+    household = models.ForeignKey("core.Household", on_delete=models.CASCADE, related_name="+")
     account = models.ForeignKey(AudibleAccount, on_delete=models.CASCADE, related_name="books")
-    asin = models.CharField(max_length=20, unique=True)
+    asin = models.CharField(max_length=20)
     title = models.CharField(max_length=500)
     subtitle = models.CharField(max_length=500, blank=True)
     authors = models.CharField(max_length=500, blank=True)
@@ -64,6 +66,7 @@ class Book(TimeStamped):
 
     class Meta:
         ordering = ["title"]
+        constraints = [models.UniqueConstraint(fields=["household", "asin"], name="one_book_per_household")]
 
     def __str__(self) -> str:
         return self.title

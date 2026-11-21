@@ -22,6 +22,7 @@ from ninja.errors import HttpError
 from core.api import JobOut, TrackOut, preferences
 from core.jobs import active_job, enqueue
 from core.models import Track
+from core.tenancy import household_id, membership
 
 from . import client, services
 from .models import AudibleAccount, Book, LibraryEntry, Listener
@@ -105,7 +106,7 @@ class BookDetailOut(BookOut):
 
 def accounts_qs(user):
     mine = services.my_account_id(user)
-    return AudibleAccount.objects.annotate(
+    return AudibleAccount.objects.filter(household_id=membership(user).household_id).annotate(
         book_count=Count("entries"),
         ready_count=Count("entries", filter=Q(entries__book__status=Book.Status.READY)),
         is_mine=Case(When(pk=mine, then=Value(True)), default=Value(False), output_field=BooleanField()),
@@ -131,13 +132,18 @@ class AccountIn(Schema):
 def create_account(request, payload: AccountIn):
     if payload.locale not in client.LOCALES:
         raise HttpError(400, "Unknown marketplace")
-    account = AudibleAccount.objects.create(name=payload.name.strip() or "Audible", locale=payload.locale)
+    account = AudibleAccount.objects.create(
+        household_id=household_id(request), name=payload.name.strip() or "Audible", locale=payload.locale
+    )
+    if not Listener.objects.filter(user=request.user).exists():
+        # The first account someone adds is almost always their own.
+        Listener.objects.create(user=request.user, account=account)
     return accounts_qs(request.user).get(pk=account.pk)
 
 
 @router.post("/accounts/{account_id}/login/start")
 def login_start(request, account_id: int):
-    account = get_object_or_404(AudibleAccount, pk=account_id)
+    account = get_object_or_404(AudibleAccount, pk=account_id, household_id=household_id(request))
     return {"login_url": client.start_login(account)}
 
 
@@ -147,7 +153,7 @@ class LoginFinishIn(Schema):
 
 @router.post("/accounts/{account_id}/login/finish", response=AccountOut)
 def login_finish(request, account_id: int, payload: LoginFinishIn):
-    account = get_object_or_404(AudibleAccount, pk=account_id)
+    account = get_object_or_404(AudibleAccount, pk=account_id, household_id=household_id(request))
     try:
         client.finish_login(account, payload.redirect_url)
     except client.AudibleError as exc:
@@ -158,7 +164,7 @@ def login_finish(request, account_id: int, payload: LoginFinishIn):
 
 @router.post("/accounts/{account_id}/sync", response=JobOut)
 def sync(request, account_id: int):
-    account = get_object_or_404(AudibleAccount, pk=account_id)
+    account = get_object_or_404(AudibleAccount, pk=account_id, household_id=household_id(request))
     if not account.connected:
         raise HttpError(400, "Connect this account first")
     if job := active_job(account, "audible_sync"):
@@ -171,14 +177,14 @@ def sync(request, account_id: int):
 @router.post("/accounts/{account_id}/mine", response=AccountOut)
 def make_mine(request, account_id: int):
     """Use this account's listening positions for whoever is signed in."""
-    account = get_object_or_404(AudibleAccount, pk=account_id)
+    account = get_object_or_404(AudibleAccount, pk=account_id, household_id=household_id(request))
     Listener.objects.update_or_create(user=request.user, defaults={"account": account})
     return accounts_qs(request.user).get(pk=account.pk)
 
 
 @router.delete("/accounts/{account_id}")
 def delete_account(request, account_id: int):
-    account = get_object_or_404(AudibleAccount, pk=account_id)
+    account = get_object_or_404(AudibleAccount, pk=account_id, household_id=household_id(request))
     if account.connected:
         try:
             client.disconnect(account)
@@ -210,7 +216,8 @@ def books_qs(user):
         return Subquery(entries.values(field)[:1])
 
     return (
-        Book.objects.select_related("account")
+        Book.objects.filter(household_id=membership(user).household_id)
+        .select_related("account")
         .prefetch_related("entries__account")
         .annotate(
             track_count=Count("tracks", distinct=True),
@@ -281,7 +288,7 @@ class ConvertIn(Schema):
 
 @router.post("/books/{book_id}/convert", response=JobOut)
 def convert(request, book_id: int, payload: ConvertIn):
-    book = get_object_or_404(Book.objects.select_related("account"), pk=book_id)
+    book = get_object_or_404(Book.objects.select_related("account"), pk=book_id, household_id=household_id(request))
     if services.download_account(book) is None:
         raise HttpError(400, f"{book.account.name}'s Audible account needs reconnecting")
     if job := active_job(book, "audible_convert"):
@@ -305,7 +312,7 @@ def make_askable(request, book_id: int, payload: AskableIn):
 
     from .tasks import make_askable_task
 
-    book = get_object_or_404(Book.objects.select_related("account"), pk=book_id)
+    book = get_object_or_404(Book.objects.select_related("account"), pk=book_id, household_id=household_id(request))
     for kind in ("audible_askable", "audible_convert", "transcribe"):
         if job := active_job(book, kind):
             return job
@@ -339,7 +346,7 @@ def make_askable(request, book_id: int, payload: AskableIn):
 
 @router.post("/books/{book_id}/position", response=BookOut)
 def refresh_position(request, book_id: int):
-    book = get_object_or_404(Book, pk=book_id)
+    book = get_object_or_404(Book, pk=book_id, household_id=household_id(request))
     entry = services.entry_for(book, request.user)
     if entry is None:
         raise HttpError(400, "This book isn't in any connected Audible library")
@@ -354,6 +361,6 @@ def refresh_position(request, book_id: int):
 
 @router.delete("/books/{book_id}/audio", response=BookOut)
 def delete_book_audio(request, book_id: int):
-    book = get_object_or_404(Book, pk=book_id)
+    book = get_object_or_404(Book, pk=book_id, household_id=household_id(request))
     services.delete_audio(book)
     return books_qs(request.user).get(pk=book_id)
