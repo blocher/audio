@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
-import type { Onboarding, Session, User } from "../types";
+import { FEATURES, SOURCES, type Feature, type Onboarding, type Session, type User } from "../types";
 
 export function useSession() {
   return useQuery({ queryKey: ["session"], queryFn: () => api.get<Session>("/auth/session"), staleTime: Infinity });
@@ -16,10 +16,20 @@ export function useOnboarding() {
   return useQuery({ queryKey: ["onboarding"], queryFn: () => api.get<Onboarding>("/onboarding"), staleTime: 30_000 });
 }
 
-/** Whether Ask-related buttons are worth showing: AI is set up, or this person said they mostly want Ask. */
+/** The features and sources this person chose; nothing chosen means everything. */
+export function featureSet(chosen: Feature[] | undefined): Set<Feature> {
+  return new Set(chosen?.length ? chosen : [...FEATURES, ...SOURCES]);
+}
+
+/** `has("yoto")`: whether to show that part of the app to this person. */
+export function useFeatures(): (feature: Feature) => boolean {
+  const set = featureSet(useMe()?.features);
+  return (feature) => set.has(feature);
+}
+
+/** Whether Ask-related buttons are worth showing: they chose Ask, or an AI key is set up anyway. */
 export function useAskVisible(): boolean {
-  const me = useMe();
+  const has = useFeatures();
   const status = useOnboarding();
-  if (status.data?.ai.transcribe || status.data?.ai.ask) return true;
-  return me?.primary_use !== "yoto";
+  return has("ask") || !!(status.data?.ai.transcribe || status.data?.ai.ask);
 }

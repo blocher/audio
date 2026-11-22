@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Home, KeyRound, Mail, Pencil, RefreshCw, Send, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Copy, Eye, Home, KeyRound, Mail, Pencil, RefreshCw, Send, Trash2, UserPlus, Users, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { relative } from "../format";
@@ -115,6 +115,17 @@ function PersonRow({ person: p, isAdmin, onEdit, onPassword }: { person: Person;
   );
   const remove = useAction((id: number) => api.del(`/users/${id}`), [["people"], ["households"]]);
   const canEdit = isAdmin || p.is_me;
+  const qc = useQueryClient();
+
+  async function viewAs(id: number) {
+    try {
+      await api.post(`/superadmin/impersonate/${id}`);
+      qc.clear();
+      window.location.assign("/");
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  }
   const name = p.first_name || p.username;
   return (
     <div className="list-row person-row">
@@ -156,6 +167,9 @@ function PersonRow({ person: p, isAdmin, onEdit, onPassword }: { person: Person;
         <span />
       )}
       <div className="actions">
+        {isAdmin && !p.is_me && (
+          <Button size="sm" iconOnly icon={<Eye size={14} />} aria-label={`View Audio as ${name}`} title={`View Audio as ${name}`} onClick={() => void viewAs(p.id)} />
+        )}
         {canEdit && <Button size="sm" iconOnly icon={<Pencil size={14} />} aria-label={`Edit ${name}`} onClick={onEdit} />}
         {canEdit && <Button size="sm" iconOnly icon={<KeyRound size={14} />} aria-label={`Change ${name}'s password`} onClick={onPassword} />}
         {isAdmin && !p.is_me && (

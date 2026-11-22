@@ -44,14 +44,14 @@ class Household(TimeStamped):
 class Member(TimeStamped):
     """Which household a login belongs to, and how they like to use the app."""
 
-    class Use(models.TextChoices):
-        YOTO = "yoto", "Yoto cards"
-        ASK = "ask", "Asking about books"
-        BOTH = "both", "Both"
+    # What they use the app for ("yoto", "ask", "listen") and where their audio comes from ("audible", "podcasts",
+    # "folders"). The wizard only sets up these, and the app shows these first. Empty means everything.
+    FEATURES = ("yoto", "ask", "listen")
+    SOURCES = ("audible", "podcasts", "folders")
 
     user = models.OneToOneField("auth.User", on_delete=models.CASCADE, related_name="member")
     household = models.ForeignKey(Household, on_delete=models.PROTECT, related_name="members")
-    primary_use = models.CharField(max_length=10, choices=Use.choices, blank=True)
+    features = models.JSONField(default=list, blank=True)
     # Set when they finish (or skip) the welcome wizard; until then the app opens on it.
     onboarded_at = models.DateTimeField(null=True, blank=True)
 

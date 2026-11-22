@@ -11,7 +11,7 @@ import {
   type LibraryItem,
 } from "../components/LibraryGrid";
 import { Empty, PageHead, SourceIcon } from "../components/ui";
-import { useOnboarding } from "../hooks/session";
+import { featureSet, useFeatures, useOnboarding } from "../hooks/session";
 import { useListMemory } from "../hooks/listMemory";
 import type { Playlist, Session } from "../types";
 
@@ -27,6 +27,7 @@ export default function Home() {
     queryFn: () => api.get<Playlist[]>("/yoto/playlists"),
   });
   const library = useLibraryItems();
+  const has = useFeatures();
   useListMemory(!library.loading);
   const user = session.data?.user;
   const name = user?.first_name || user?.username || "";
@@ -44,15 +45,20 @@ export default function Home() {
         title={name ? `Hello, ${name}` : "Hello"}
         lede="Your starred audio, kept here just for you."
         actions={
-          user?.primary_use === "yoto" ? (
-            <Link className="btn primary" to="/yoto?new=1">
-              <SquareStack size={17} /> Make Yoto cards
-            </Link>
-          ) : user?.primary_use === "ask" ? (
-            <Link className="btn primary" to="/library?listening=1">
-              <MessageCircle size={17} /> Ask about a book
-            </Link>
-          ) : undefined
+          (has("yoto") || has("ask")) && (
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              {has("yoto") && (
+                <Link className="btn primary" to="/yoto?new=1">
+                  <SquareStack size={17} /> Make Yoto cards
+                </Link>
+              )}
+              {has("ask") && (
+                <Link className={`btn ${has("yoto") ? "" : "primary"}`} to="/library?listening=1">
+                  <MessageCircle size={17} /> Ask about a book
+                </Link>
+              )}
+            </div>
+          )
         }
       />
       <SetupNudge />
@@ -82,8 +88,8 @@ export default function Home() {
           )}
         </section>
         <aside className="rail">
-          <ContinueListening />
-          <YotoRail playlists={playlists.data ?? []} loading={playlists.isLoading} />
+          {has("listen") && <ContinueListening />}
+          {has("yoto") && <YotoRail playlists={playlists.data ?? []} loading={playlists.isLoading} />}
         </aside>
       </div>
     </>
@@ -120,18 +126,19 @@ function SetupNudge() {
   const status = useOnboarding();
   const data = status.data;
   if (!data) return null;
-  const use = data.primary_use || "both";
+  const has = featureSet(data.features);
   const todo = [
-    !data.audible.some((a) => a.connected) && {
+    has.has("audible") &&
+      !data.audible.some((a) => a.connected) && {
       step: "audible",
       icon: <SourceIcon kind="audible" size={18} />,
       label: "Connect Audible",
       why: "to see your audiobooks",
     },
-    use !== "ask" &&
+    has.has("yoto") &&
       !data.yoto.connected.length &&
       data.yoto.ready && { step: "yoto", icon: <SquareStack size={18} />, label: "Connect Yoto", why: "to send cards to your player" },
-    use !== "yoto" &&
+    has.has("ask") &&
       !(data.ai.transcribe && data.ai.ask) && {
         step: "ai",
         icon: <MessageCircle size={18} />,

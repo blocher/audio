@@ -200,10 +200,12 @@ def test_only_super_admins_change_the_yoto_app(client, django_user_model):
 def test_onboarding_remembers_the_choice_and_finishing(client, ben):
     status = client.get("/api/onboarding").json()
     assert status["audible"] == [] and status["yoto"]["connected"] == []
-    done = client.patch("/api/onboarding", {"primary_use": "yoto", "done": True}, content_type="application/json")
-    assert done.json()["primary_use"] == "yoto" and done.json()["onboarded"] is True
-    assert client.get("/api/auth/session").json()["user"]["primary_use"] == "yoto"
-    assert client.patch("/api/onboarding", {"primary_use": "nope"}, content_type="application/json").status_code == 400
+    body = {"features": ["podcasts", "yoto"], "done": True}
+    done = client.patch("/api/onboarding", body, content_type="application/json")
+    assert done.json()["features"] == ["yoto", "podcasts"] and done.json()["onboarded"] is True
+    assert client.get("/api/auth/session").json()["user"]["features"] == ["yoto", "podcasts"]
+    for bad in (["nope"], ["audible"]):  # unknown, or only a source with nothing to do
+        assert client.patch("/api/onboarding", {"features": bad}, content_type="application/json").status_code == 400
 
 
 def test_yoto_sign_in_comes_back_to_the_page_that_started_it(client, ben, monkeypatch):
@@ -220,3 +222,49 @@ def test_yoto_sign_in_comes_back_to_the_page_that_started_it(client, ben, monkey
     # Only paths on this site.
     client.post("/api/yoto/accounts", {"return_to": "https://evil.example"}, content_type="application/json")
     assert YotoAccount.objects.get().pending_login["return_to"] == ""
+
+
+def test_super_admin_overview_shows_invites_and_usage(client, ben, household):
+    from transcripts.models import Conversation, Message, Transcript
+
+    folder = Collection.objects.create(name="Folder")
+    track = Track.objects.create(source="local", collection=folder, title="T", size_bytes=1000)
+    Transcript.objects.create(
+        track=track, status="ready", provider="groq", model="whisper-large-v3-turbo", audio_seconds=36_000
+    )
+    talk = Conversation.objects.create(collection=folder, owner=ben)
+    Message.objects.create(conversation=talk, role="assistant", content="hi", input_tokens=100, output_tokens=7)
+    accept(invite(client, name="Gran")["invite"]["link"])
+    invite(client, email="pal@example.com")
+
+    data = client.get("/api/superadmin/overview").json()
+    assert data["totals"]["invites_accepted"] == 1 and data["totals"]["invites_pending"] == 1
+    assert [i["email"] for i in data["invites"]["pending"]] == ["pal@example.com"]
+    home = next(h for h in data["households"] if h["id"] == household.pk)
+    assert home["usage"]["transcribed_hours"] == 10.0 and home["usage"]["transcription_cost_estimate"] == 0.4
+    assert home["usage"]["ask"] == {"answers": 1, "tokens_in": 100, "tokens_out": 7}
+    assert home["usage"]["storage_bytes"] == 1000
+    assert any(p["name"] == "Gran" and not p["onboarded"] for h in data["households"] for p in h["people"])
+
+
+def test_super_admins_can_view_as_someone_and_switch_back(client, ben, django_user_model):
+    kid = django_user_model.objects.create_user("kid", password=PW, first_name="Kid")
+    assert client.post(f"/api/superadmin/impersonate/{kid.pk}").status_code == 200
+    me = client.get("/api/auth/session").json()["user"]
+    assert me["username"] == "kid" and me["impersonator"] == "Ben"
+    kid.refresh_from_db()
+    assert kid.last_login is None  # viewing as them isn't them signing in
+    # While viewing as a non-admin, admin-only things are off limits.
+    assert client.get("/api/superadmin/overview").status_code == 403
+    assert client.post("/api/superadmin/impersonate/stop").status_code == 200
+    me = client.get("/api/auth/session").json()["user"]
+    assert me["username"] == "ben" and me["impersonator"] is None
+
+
+def test_only_super_admins_view_as_others(client, django_user_model):
+    kid = django_user_model.objects.create_user("kid", password=PW)
+    other = django_user_model.objects.create_user("other", password=PW)
+    client.force_login(kid)
+    assert client.post(f"/api/superadmin/impersonate/{other.pk}").status_code == 403
+    assert client.post("/api/superadmin/impersonate/stop").status_code == 400
+    assert client.get("/api/superadmin/overview").status_code == 403

@@ -11,7 +11,7 @@ router = Router(tags=["onboarding"])
 
 
 class OnboardingPatch(Schema):
-    primary_use: str | None = None
+    features: list[str] | None = None
     done: bool | None = None  # true: finished (or skipped) the wizard; false: show it again
 
 
@@ -30,7 +30,7 @@ def status(request) -> dict:
     sources = {lookup(p, "api_key")[1] for p in ai.PROVIDERS if ai.configured(p)}
     return {
         "name": request.user.first_name or request.user.username,
-        "primary_use": member.primary_use,
+        "features": member.features,
         "onboarded": member.onboarded_at is not None,
         "household_name": member.household.name,
         "shared_with": [m.user.first_name or m.user.username for m in others],
@@ -56,10 +56,14 @@ def get_status(request):
 @router.patch("")
 def update(request, payload: OnboardingPatch):
     member = membership(request.user)
-    if payload.primary_use is not None:
-        if payload.primary_use not in Member.Use.values:
-            raise HttpError(400, "Pick Yoto cards, asking about books, or both")
-        member.primary_use = payload.primary_use
+    if payload.features is not None:
+        allowed = (*Member.FEATURES, *Member.SOURCES)
+        chosen = [f for f in allowed if f in payload.features]  # known ones, in a stable order
+        if unknown := set(payload.features) - set(allowed):
+            raise HttpError(400, f"Unknown choice: {', '.join(sorted(unknown))}")
+        if not set(chosen) & set(Member.FEATURES):
+            raise HttpError(400, "Pick at least one thing you'd like to do")
+        member.features = chosen
     if payload.done is not None:
         member.onboarded_at = timezone.now() if payload.done else None
     member.save()

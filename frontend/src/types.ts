@@ -1,6 +1,9 @@
 // Shapes returned by the Django Ninja API.
 
-export type PrimaryUse = "yoto" | "ask" | "both" | "";
+/** What someone uses the app for, and where their audio comes from. */
+export type Feature = "yoto" | "ask" | "listen" | "audible" | "podcasts" | "folders";
+export const FEATURES: Feature[] = ["yoto", "ask", "listen"];
+export const SOURCES: Feature[] = ["audible", "podcasts", "folders"];
 
 export interface User {
   id: number;
@@ -11,9 +14,12 @@ export interface User {
   is_admin: boolean;
   household_id: number;
   household_name: string;
-  primary_use: PrimaryUse;
+  /** What they picked in the wizard; empty means everything. */
+  features: Feature[];
   /** Finished (or skipped) the welcome wizard. */
   onboarded: boolean;
+  /** Set while a super admin is viewing the app as this person: the super admin's name. */
+  impersonator?: string | null;
 }
 
 /** Someone who can sign in, as Settings → People shows them. */
@@ -60,7 +66,7 @@ export interface InviteSent {
 /** What someone has connected so far, for the welcome wizard and setup reminders. */
 export interface Onboarding {
   name: string;
-  primary_use: PrimaryUse;
+  features: Feature[];
   onboarded: boolean;
   household_name: string;
   shared_with: string[];

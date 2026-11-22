@@ -6,10 +6,14 @@ import {
   BookOpen,
   CheckCircle2,
   Circle,
+  FolderOpen,
+  Headphones,
   LibraryBig,
   MessageCircle,
+  Mic,
   PartyPopper,
-  Sparkles,
+  Plus,
+  Search,
   SquareStack,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -18,19 +22,33 @@ import { api } from "../api";
 import { AiQuickSetup } from "../components/AiSetup";
 import { AudibleSignInSteps } from "../components/AudibleConnect";
 import { Button, Note, SourceIcon, Spinner, errorText } from "../components/ui";
-import { useOnboarding } from "../hooks/session";
-import type { AudibleAccount, Onboarding, PrimaryUse } from "../types";
+import { featureSet, useOnboarding } from "../hooks/session";
+import { FEATURE_LABELS } from "../features";
+import { FEATURES, SOURCES, type AudibleAccount, type Feature, type Onboarding } from "../types";
 
-const STEPS = ["use", "audible", "yoto", "ai", "done"] as const;
-type Step = (typeof STEPS)[number];
+type Step = "start" | "audible" | "podcasts" | "yoto" | "ai" | "done";
 
 const STEP_LABELS: Record<Step, string> = {
-  use: "Welcome",
+  start: "Welcome",
   audible: "Audible",
+  podcasts: "Podcasts",
   yoto: "Yoto",
-  ai: "Ask (optional)",
+  ai: "Ask",
   done: "Done",
 };
+
+/** Only the steps the chosen features need: Audible and Podcasts for those sources, Yoto for cards, AI for Ask. */
+function stepsFor(features: Feature[], requested: Step | null): Step[] {
+  const has = featureSet(features);
+  const steps: Step[] = ["start"];
+  if (has.has("audible")) steps.push("audible");
+  if (has.has("podcasts")) steps.push("podcasts");
+  if (has.has("yoto")) steps.push("yoto");
+  if (has.has("ask")) steps.push("ai");
+  // A step opened directly (e.g. "Set up Ask" from a book) still shows, even if it wasn't picked.
+  if (requested && !steps.includes(requested) && requested !== "done") steps.push(requested);
+  return [...steps, "done"];
+}
 
 /**
  * The first thing someone new sees: a few big, skippable steps to connect Audible, Yoto and (only if they want Ask)
@@ -41,15 +59,22 @@ export default function Welcome() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const status = useOnboarding();
-  const step: Step = (STEPS as readonly string[]).includes(params.get("step") ?? "") ? (params.get("step") as Step) : "use";
-  const index = STEPS.indexOf(step);
+  const requested = (params.get("step") as Step | null) ?? null;
+  const steps = stepsFor(status.data?.features ?? [], requested && requested in STEP_LABELS ? requested : null);
+  const step: Step = requested && steps.includes(requested) ? requested : "start";
+  const index = steps.indexOf(step);
 
   function go(next: Step) {
     setParams({ step: next });
     window.scrollTo({ top: 0 });
   }
-  const next = () => go(STEPS[Math.min(index + 1, STEPS.length - 1)]);
-  const back = () => go(STEPS[Math.max(index - 1, 0)]);
+  // After the first step the list can change (it depends on what was picked), so "next" reads it fresh.
+  const nextAfter = (from: Step, features: Feature[]) => {
+    const list = stepsFor(features, null);
+    return list[Math.min(list.indexOf(from) + 1, list.length - 1)] ?? "done";
+  };
+  const next = () => go(steps[Math.min(index + 1, steps.length - 1)]);
+  const back = () => go(steps[Math.max(index - 1, 0)]);
 
   async function finish(to = "/") {
     await api.patch("/onboarding", { done: true });
@@ -76,7 +101,7 @@ export default function Welcome() {
           <AudioLines size={24} /> Audio
         </div>
         <ol className="welcome-progress" aria-label="Setup steps">
-          {STEPS.map((s, n) => (
+          {steps.map((s, n) => (
             <li key={s} className={n < index ? "done" : n === index ? "current" : ""} aria-current={n === index ? "step" : undefined}>
               <span className="dot" />
               <span className="label">{STEP_LABELS[s]}</span>
@@ -93,10 +118,12 @@ export default function Welcome() {
       <main className="welcome-card">
         {!data ? (
           <Spinner size={26} />
-        ) : step === "use" ? (
-          <UseStep data={data} onNext={next} />
+        ) : step === "start" ? (
+          <StartStep data={data} onNext={(features) => go(nextAfter("start", features))} />
         ) : step === "audible" ? (
           <AudibleStep data={data} onNext={next} onBack={back} />
+        ) : step === "podcasts" ? (
+          <PodcastsStep onNext={next} onBack={back} />
         ) : step === "yoto" ? (
           <YotoStep data={data} onNext={next} onBack={back} />
         ) : step === "ai" ? (
@@ -149,91 +176,120 @@ function Done({ children }: { children: ReactNode }) {
 
 // ---------- 1. what it's for ----------
 
-const USES: { id: PrimaryUse; icon: ReactNode; title: string; text: string }[] = [
-  {
-    id: "yoto",
-    icon: <SquareStack size={28} />,
-    title: "Making Yoto cards",
-    text: "Put audiobooks and podcasts onto Make Your Own cards for a Yoto player.",
-  },
-  {
-    id: "ask",
-    icon: <MessageCircle size={28} />,
-    title: "Asking about books",
-    text: "Ask questions about the book you're listening to, with no spoilers past where you are.",
-  },
-  {
-    id: "both",
-    icon: <Sparkles size={28} />,
-    title: "A bit of both",
-    text: "Yoto cards and asking questions.",
-  },
-];
+const FEATURE_ICONS: Record<Feature, ReactNode> = {
+  yoto: <SquareStack size={26} />,
+  ask: <MessageCircle size={26} />,
+  listen: <Headphones size={26} />,
+  audible: <SourceIcon kind="audible" size={22} />,
+  podcasts: <Mic size={22} />,
+  folders: <FolderOpen size={22} />,
+};
 
-function UseStep({ data, onNext }: { data: Onboarding; onNext: () => void }) {
+function StartStep({ data, onNext }: { data: Onboarding; onNext: (features: Feature[]) => void }) {
   const qc = useQueryClient();
-  const [picked, setPicked] = useState<PrimaryUse>(data.primary_use);
+  // Someone new starts with the most common picks; someone rerunning setup sees what they chose before.
+  const [picked, setPicked] = useState<Set<Feature>>(
+    new Set(data.features.length ? data.features : ["yoto", "listen", "audible"]),
+  );
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const anyFeature = FEATURES.some((f) => picked.has(f));
 
-  async function choose(use: PrimaryUse) {
-    setPicked(use);
+  const toggle = (f: Feature) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(f)) next.delete(f);
+      else next.add(f);
+      return next;
+    });
+
+  async function save() {
     setBusy(true);
+    setError("");
+    const features = [...FEATURES, ...SOURCES].filter((f) => picked.has(f));
     try {
-      await api.patch("/onboarding", { primary_use: use });
-      qc.invalidateQueries({ queryKey: ["onboarding"] });
+      await api.patch("/onboarding", { features });
+      await qc.invalidateQueries({ queryKey: ["onboarding"] });
       qc.invalidateQueries({ queryKey: ["session"] });
-      onNext();
+      onNext(features);
+    } catch (e) {
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
   }
 
+  const tile = (f: Feature) => (
+    <button key={f} type="button" className={`use-choice ${picked.has(f) ? "picked" : ""}`} aria-pressed={picked.has(f)} onClick={() => toggle(f)}>
+      <span className="use-check">{picked.has(f) ? <CheckCircle2 size={20} /> : <Circle size={20} />}</span>
+      <span className="use-icon">{FEATURE_ICONS[f]}</span>
+      <strong>{FEATURE_LABELS[f].label}</strong>
+      <span>{FEATURE_TEXT[f]}</span>
+    </button>
+  );
+
   return (
     <>
       <h1>Hi {data.name}! Let's get you set up.</h1>
       <p className="welcome-lede">
-        It takes about five minutes, and you can skip anything and come back to it later.
+        Pick what you'd like, and we'll only ask about those. It takes a few minutes, and you can change it any time.
         {data.shared_with.length > 0 && (
           <> You're sharing <b>{data.household_name}</b> with {listNames(data.shared_with)}.</>
         )}
       </p>
-      <h2>What will you mostly use Audio for?</h2>
-      <div className="use-choices">
-        {USES.map((u) => (
-          <button key={u.id} type="button" className={`use-choice ${picked === u.id ? "picked" : ""}`} disabled={busy} onClick={() => void choose(u.id)}>
-            <span className="use-icon">{u.icon}</span>
-            <strong>{u.title}</strong>
-            <span>{u.text}</span>
-          </button>
-        ))}
+      <h2>What would you like to do?</h2>
+      <div className="use-choices">{FEATURES.map(tile)}</div>
+      <h2>Where does your audio come from?</h2>
+      <div className="use-choices compact">{SOURCES.map(tile)}</div>
+      {error && <div style={{ marginTop: 14, width: "100%" }}><Note tone="error">{error}</Note></div>}
+      <div className="welcome-nav">
+        <span className="muted" style={{ fontSize: "var(--text-sm)" }}>{!anyFeature && "Pick at least one thing to do."}</span>
+        <span className="spacer" />
+        <Button variant="primary" size="lg" loading={busy} disabled={!anyFeature} onClick={() => void save()}>
+          Continue <ArrowRight size={17} />
+        </Button>
       </div>
-      <p className="muted welcome-small">This only changes what's shown first. Everything stays available, and you can change it in Settings.</p>
     </>
   );
 }
 
+const FEATURE_TEXT: Record<Feature, string> = {
+  yoto: "Put audiobooks and podcasts onto Make Your Own cards for a Yoto player.",
+  ask: "Ask questions about the book you're listening to, with no spoilers past where you are.",
+  listen: "Play your audiobooks and podcasts right here, on your phone or computer.",
+  audible: "Audiobooks you've bought on Audible.",
+  podcasts: "Shows you follow, from Apple Podcasts or any feed.",
+  folders: "Audio files on your computer, like CDs you've copied.",
+};
+
 // ---------- 2. Audible ----------
 
+/**
+ * Connect one or more Audible accounts. A library can hold several (yours, a partner's, a child's); books shared
+ * through Amazon family sharing show up once, and each person sees their own listening position.
+ */
 function AudibleStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => void; onBack: () => void }) {
   const qc = useQueryClient();
   const accounts = useQuery({ queryKey: ["audible-accounts"], queryFn: () => api.get<AudibleAccount[]>("/audible/accounts") });
   const locales = useQuery({ queryKey: ["locales"], queryFn: () => api.get<{ code: string; name: string }[]>("/audible/locales"), staleTime: Infinity });
+  const connected = (accounts.data ?? []).filter((a) => a.connected);
+  const unfinished = (accounts.data ?? []).filter((a) => !a.connected);
+  const mineConnected = connected.some((a) => a.is_mine);
+  const [adding, setAdding] = useState<boolean | null>(null);
+  const showForm = adding ?? !connected.length;
+  const [name, setName] = useState<string | null>(null);
   const [locale, setLocale] = useState("us");
   const [signingIn, setSigningIn] = useState<AudibleAccount | null>(null);
-  const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
-  const connected = data.audible.filter((a) => a.connected);
-  const shared = data.shared_with.length > 0;
+  // The first account is usually their own; after that it's someone else's.
+  const whose = name ?? (mineConnected || connected.length ? "" : data.name);
 
   async function start() {
     setError("");
     try {
-      // Reuse an account added earlier that never finished signing in.
-      const unfinished = (accounts.data ?? []).find((a) => !a.connected && a.is_mine) ?? (!shared ? (accounts.data ?? []).find((a) => !a.connected) : undefined);
-      const account =
-        unfinished && unfinished.locale === locale
-          ? unfinished
-          : await api.post<AudibleAccount>("/audible/accounts", { name: data.name, locale });
+      const label = whose.trim() || data.name;
+      const retry = unfinished.find((a) => a.name.toLowerCase() === label.toLowerCase() && a.locale === locale);
+      const account = retry ?? (await api.post<AudibleAccount>("/audible/accounts", { name: label, locale }));
       qc.invalidateQueries({ queryKey: ["audible-accounts"] });
       setSigningIn(account);
     } catch (e) {
@@ -244,13 +300,15 @@ function AudibleStep({ data, onNext, onBack }: { data: Onboarding; onNext: () =>
   if (signingIn)
     return (
       <>
-        <h1>Sign in to Audible</h1>
+        <h1>Sign in to {signingIn.name === data.name ? "your" : `${signingIn.name}'s`} Audible</h1>
         <p className="welcome-lede">Three short steps. Amazon doesn't let other apps show its sign-in here, so it opens in a new tab.</p>
         <AudibleSignInSteps
           account={signingIn}
           onConnected={() => {
             setSigningIn(null);
             setAdding(false);
+            setName(null);
+            qc.invalidateQueries({ queryKey: ["onboarding"] });
           }}
         />
         <StepNav onBack={() => setSigningIn(null)} skipLabel="Skip Audible for now" onSkip={onNext} />
@@ -260,47 +318,146 @@ function AudibleStep({ data, onNext, onBack }: { data: Onboarding; onNext: () =>
   return (
     <>
       <span className="welcome-icon"><SourceIcon kind="audible" size={30} /></span>
-      <h1>{connected.length ? "Your Audible library" : "Connect your Audible library"}</h1>
+      <h1>{connected.length ? "Your Audible accounts" : "Connect your Audible library"}</h1>
       <p className="welcome-lede">
         {connected.length
-          ? "Your audiobooks show up in the Library. New purchases appear by themselves."
-          : "So the audiobooks you own show up here, ready to listen to, put on Yoto cards, or ask about. It signs in the same way the Audible app does on a new phone."}
+          ? "Add everyone in your home who buys on Audible: all their books appear together, and each person sees their own place in a book."
+          : "So the audiobooks you own show up here. It signs in the same way the Audible app does on a new phone. You can add other people's Audible accounts too."}
       </p>
       {connected.length > 0 && (
-        <div className="stack" style={{ "--gap": "8px", marginBottom: 18 } as React.CSSProperties}>
+        <div className="stack" style={{ "--gap": "8px", marginBottom: 18, width: "100%" } as React.CSSProperties}>
           {connected.map((a) => (
-            <Done key={a.id}>{a.name}'s Audible is connected</Done>
+            <Done key={a.id}>
+              {a.name}'s Audible is connected{a.book_count ? ` · ${a.book_count} titles` : " · loading books"}
+            </Done>
           ))}
         </div>
       )}
-      {(!connected.length || adding) && (
-        <div className="stack" style={{ "--gap": "14px" } as React.CSSProperties}>
-          <label className="field" style={{ maxWidth: 320 }}>
-            <span>Which Audible store do you use?</span>
-            <select className="select" value={locale} onChange={(e) => setLocale(e.target.value)}>
-              {(locales.data ?? [{ code: "us", name: "United States" }]).map((l) => (
-                <option key={l.code} value={l.code}>{l.name}</option>
-              ))}
-            </select>
-          </label>
+      {showForm ? (
+        <div className="stack welcome-form" style={{ "--gap": "14px" } as React.CSSProperties}>
+          <div className="grid-2">
+            <label className="field">
+              <span>Whose Audible account?</span>
+              <input className="input" value={whose} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sam" />
+              <small>Just a label, so you can tell accounts apart.</small>
+            </label>
+            <label className="field">
+              <span>Which Audible store?</span>
+              <select className="select" value={locale} onChange={(e) => setLocale(e.target.value)}>
+                {(locales.data ?? [{ code: "us", name: "United States" }]).map((l) => (
+                  <option key={l.code} value={l.code}>{l.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           {error && <Note tone="error">{error}</Note>}
-          <Button variant="primary" size="lg" onClick={() => void start()} style={{ alignSelf: "flex-start" }}>
-            Connect my Audible
-          </Button>
+          <div className="row" style={{ gap: 10 }}>
+            <Button variant="primary" size="lg" disabled={!whose.trim()} onClick={() => void start()}>
+              Connect {whose.trim() && whose.trim() !== data.name ? `${whose.trim()}'s` : "my"} Audible
+            </Button>
+            {connected.length > 0 && <Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>}
+          </div>
         </div>
-      )}
-      {connected.length > 0 && !adding && (
-        <button type="button" className="link-btn" onClick={() => setAdding(true)}>
-          {shared ? "Add my own Audible account too" : "Add another person's Audible account"}
-        </button>
+      ) : (
+        <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>
+          Add another Audible account
+        </Button>
       )}
       <StepNav
         onBack={onBack}
         onNext={onNext}
-        nextLabel={connected.length ? "Continue" : "Skip, I don't use Audible"}
+        nextLabel={connected.length ? "Continue" : "Skip for now"}
         nextVariant={connected.length ? "primary" : "ghost"}
       />
-      {!connected.length && <p className="muted welcome-small">No Audible? Podcasts and your own audio files work too, from the menu.</p>}
+    </>
+  );
+}
+
+// ---------- 2b. Podcasts ----------
+
+interface PodcastResult {
+  title: string;
+  author: string;
+  feed_url: string;
+  image_url: string;
+}
+
+function PodcastsStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const qc = useQueryClient();
+  const following = useQuery({ queryKey: ["podcasts"], queryFn: () => api.get<{ id: number; title: string; feed_url: string }[]>("/podcasts") });
+  const [term, setTerm] = useState("");
+  const [query, setQuery] = useState("");
+  const results = useQuery({
+    queryKey: ["podcast-search", query],
+    queryFn: () => api.get<PodcastResult[]>(`/podcasts/search?q=${encodeURIComponent(query)}`),
+    enabled: query.length >= 2,
+  });
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const followed = new Set((following.data ?? []).map((p) => p.feed_url));
+
+  async function follow(result: PodcastResult) {
+    setBusy(result.feed_url);
+    setError("");
+    try {
+      await api.post("/podcasts", { url: result.feed_url });
+      qc.invalidateQueries({ queryKey: ["podcasts"] });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <>
+      <span className="welcome-icon"><Mic size={30} /></span>
+      <h1>Follow a podcast or two</h1>
+      <p className="welcome-lede">Search for a show and tap Follow. New episodes appear by themselves. You can add more later from Podcasts.</p>
+      {(following.data ?? []).length > 0 && (
+        <div className="stack" style={{ "--gap": "8px", marginBottom: 16, width: "100%" } as React.CSSProperties}>
+          {following.data!.map((p) => (
+            <Done key={p.id}>Following {p.title}</Done>
+          ))}
+        </div>
+      )}
+      <form
+        className="row welcome-form"
+        style={{ gap: 8 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          setQuery(term.trim());
+        }}
+      >
+        <input className="input" style={{ flex: 1 }} value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Show name, e.g. Story Pirates" aria-label="Search podcasts" />
+        <Button type="submit" icon={<Search size={16} />} loading={results.isFetching}>Search</Button>
+      </form>
+      {error && <div style={{ marginTop: 12, width: "100%" }}><Note tone="error">{error}</Note></div>}
+      {results.data && (
+        <div className="list welcome-form" style={{ marginTop: 14 }}>
+          {results.data.length === 0 && <div className="list-row muted">No shows found. Try fewer words.</div>}
+          {results.data.slice(0, 6).map((r) => (
+            <div key={r.feed_url} className="list-row">
+              <img src={r.image_url} alt="" width={44} height={44} style={{ borderRadius: 8, objectFit: "cover" }} />
+              <div style={{ minWidth: 0 }}>
+                <div className="title truncate">{r.title}</div>
+                <div className="sub"><span className="truncate">{r.author}</span></div>
+              </div>
+              {followed.has(r.feed_url) ? (
+                <span className="pill sage"><CheckCircle2 size={11} /> Following</span>
+              ) : (
+                <Button size="sm" variant="primary" loading={busy === r.feed_url} onClick={() => void follow(r)}>Follow</Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <StepNav
+        onBack={onBack}
+        onNext={onNext}
+        nextLabel={(following.data ?? []).length ? "Continue" : "Skip for now"}
+        nextVariant={(following.data ?? []).length ? "primary" : "ghost"}
+      />
     </>
   );
 }
@@ -314,7 +471,7 @@ function YotoStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => vo
   const [busy, setBusy] = useState(false);
   const justConnected = params.get("connected") === "1";
   const connected = data.yoto.connected;
-  const optional = data.primary_use === "ask";
+  const optional = !featureSet(data.features).has("yoto");
 
   useEffect(() => {
     if (justConnected) {
@@ -370,7 +527,7 @@ function YotoStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => vo
 
 function AiStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => void; onBack: () => void }) {
   const ready = data.ai.transcribe && data.ai.ask;
-  const yotoOnly = data.primary_use === "yoto";
+  const yotoOnly = !featureSet(data.features).has("ask");
   return (
     <>
       <span className="welcome-icon"><MessageCircle size={30} /></span>
@@ -410,13 +567,14 @@ function AiStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => void
 // ---------- 5. done ----------
 
 function DoneStep({ data, onFinish }: { data: Onboarding; onFinish: (to?: string) => Promise<void> }) {
-  const items: { ok: boolean; label: string }[] = [
-    { ok: data.audible.some((a) => a.connected), label: "Audible library" },
-    { ok: data.yoto.connected.length > 0, label: "Yoto account" },
-    { ok: data.ai.transcribe || data.ai.ask, label: "Ask & Transcribe" },
-  ];
-  const wantsYoto = data.primary_use !== "ask";
-  const wantsAsk = data.primary_use === "ask" || data.primary_use === "both";
+  const has = featureSet(data.features);
+  const items: { ok: boolean; label: string; show: boolean }[] = [
+    { ok: data.audible.some((a) => a.connected), label: "Audible", show: has.has("audible") },
+    { ok: data.yoto.connected.length > 0, label: "Yoto account", show: has.has("yoto") },
+    { ok: data.ai.transcribe || data.ai.ask, label: "Ask & Transcribe", show: has.has("ask") },
+  ].filter((i) => i.show);
+  const wantsYoto = has.has("yoto");
+  const wantsAsk = has.has("ask");
   return (
     <>
       <span className="welcome-icon"><PartyPopper size={30} /></span>
@@ -444,6 +602,13 @@ function DoneStep({ data, onFinish }: { data: Onboarding; onFinish: (to?: string
             <span className="use-icon"><BookOpen size={26} /></span>
             <strong>Ask about a book</strong>
             <span>Open a book you're listening to and tap Ask.</span>
+          </button>
+        )}
+        {has.has("folders") && (
+          <button type="button" className="use-choice" onClick={() => void onFinish("/folders")}>
+            <span className="use-icon"><FolderOpen size={26} /></span>
+            <strong>Add a folder of audio</strong>
+            <span>Upload files from this computer, like CDs you've copied.</span>
           </button>
         )}
         <button type="button" className="use-choice" onClick={() => void onFinish("/library")}>

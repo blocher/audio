@@ -31,7 +31,7 @@ def move_users_in(apps, schema_editor):
     now = timezone.now()
     for user in users:
         Member.objects.get_or_create(
-            user=user, defaults={"household": household, "primary_use": "both", "onboarded_at": now}
+            user=user, defaults={"household": household, "onboarded_at": now}
         )
         if {user.username.strip().lower(), user.first_name.strip().lower()} & SUPER_ADMIN_NAMES:
             user.is_superuser = user.is_staff = True

@@ -5,6 +5,7 @@ from audible_books.api import router as audible_router
 from core.api import router as core_router
 from core.auth import router as auth_router
 from core.onboarding import router as onboarding_router
+from core.superadmin import router as superadmin_router
 from core.users import router as users_router
 from local_audio.api import router as local_router
 from podcasts.api import router as podcasts_router
@@ -16,6 +17,7 @@ api = NinjaAPI(title="Audio", version="1.0", auth=django_auth, docs_url="/docs")
 api.add_router("/auth", auth_router)
 api.add_router("/users", users_router)
 api.add_router("/onboarding", onboarding_router)
+api.add_router("/superadmin", superadmin_router)
 api.add_router("/", core_router)
 api.add_router("/audible", audible_router)
 api.add_router("/podcasts", podcasts_router)

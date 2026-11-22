@@ -32,8 +32,11 @@ class UserOut(Schema):
     is_admin: bool
     household_id: int
     household_name: str
-    primary_use: str
+    # What they chose in the wizard; empty means everything.
+    features: list[str]
     onboarded: bool
+    # Set while a super admin is looking at the app as this person.
+    impersonator: str | None = None
 
     @staticmethod
     def resolve_is_admin(obj) -> bool:
@@ -48,8 +51,8 @@ class UserOut(Schema):
         return membership(obj).household.name
 
     @staticmethod
-    def resolve_primary_use(obj) -> str:
-        return membership(obj).primary_use
+    def resolve_features(obj) -> list[str]:
+        return membership(obj).features
 
     @staticmethod
     def resolve_onboarded(obj) -> bool:
@@ -81,6 +84,8 @@ def _failed(key: str) -> None:
 @router.get("/session", auth=None, response=SessionOut)
 def session(request):
     user = request.user if request.user.is_authenticated else None
+    if user is not None:
+        user.impersonator = request.session.get("impersonator_name")
     return {"authenticated": user is not None, "user": user, "csrf_token": get_token(request)}
 
 

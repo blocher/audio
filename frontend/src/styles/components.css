@@ -3559,3 +3559,163 @@ code {
 .welcome-top > .link-btn {
   margin-left: auto;
 }
+
+/* ───────── Viewing as someone else ───────── */
+
+.impersonation-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(8px + var(--safe-top)) 16px 8px;
+  background: var(--honey);
+  color: #2b1c06;
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow);
+}
+
+.impersonation-bar span {
+  flex: 1;
+  min-width: 0;
+}
+
+.impersonation-bar button {
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  background: #2b1c06;
+  color: var(--honey-soft);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+body:has(.impersonation-bar) .shell,
+body:has(.impersonation-bar) .welcome {
+  padding-top: 52px;
+}
+
+@media (max-width: 860px) {
+  body:has(.impersonation-bar) .sidebar {
+    top: 52px;
+  }
+}
+
+/* Checkbox tiles for picking features (Settings → Your setup, welcome wizard). */
+.feature-toggles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.feature-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1.5px solid var(--paper-line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--paper);
+}
+
+.feature-toggle.on {
+  border-color: var(--terracotta);
+  background: var(--terracotta-soft);
+}
+
+.feature-toggle input {
+  accent-color: var(--terracotta);
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+}
+
+.feature-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.feature-toggle small {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+/* The wizard's first step: tiles you can tick several of. */
+.use-choice {
+  position: relative;
+}
+
+.use-check {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  color: var(--ink-faint);
+}
+
+.use-choice.picked .use-check {
+  color: var(--terracotta);
+}
+
+.use-choices.compact .use-choice {
+  padding: 14px 16px;
+}
+
+.use-choices.compact .use-choice strong {
+  font-size: var(--text-md);
+}
+
+.welcome-form {
+  width: 100%;
+}
+
+/* ───────── Super admin dashboard ───────── */
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.admin-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-line);
+}
+
+.admin-stat-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+
+.admin-stat strong {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.admin-stat small {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.admin-usage {
+  grid-template-columns: minmax(120px, auto) 1fr;
+}
+
+.panel-head .tabs {
+  margin-left: auto;
+}

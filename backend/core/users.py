@@ -47,7 +47,7 @@ class PersonOut(Schema):
     household_name: str
     # The Audible accounts in their household, to pick theirs from.
     audible_accounts: list[AccountRef]
-    primary_use: str
+    features: list[str]
     onboarded: bool
     is_me: bool = False
 
@@ -74,8 +74,8 @@ class PersonOut(Schema):
         return [{"id": a.pk, "name": a.name} for a in accounts]
 
     @staticmethod
-    def resolve_primary_use(obj) -> str:
-        return membership(obj).primary_use
+    def resolve_features(obj) -> list[str]:
+        return membership(obj).features
 
     @staticmethod
     def resolve_onboarded(obj) -> bool:

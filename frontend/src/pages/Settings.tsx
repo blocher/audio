@@ -11,10 +11,11 @@ import { BitratePicker } from "../components/Tools";
 import { Button, Modal, Note, PageHead, SourceIcon, Spinner, errorText, useToast } from "../components/ui";
 import { bytes, relative } from "../format";
 import { useAction } from "../hooks/queries";
+import { FEATURE_LABELS } from "../features";
 import { PROVIDER_USES } from "../providers";
 import { clearUserCaches, isIos, promptInstall, requestPersistence, storageInfo, usePwa } from "../pwa";
-import { useMe, useOnboarding } from "../hooks/session";
-import type { AudibleAccount, PrimaryUse, SecretValue, SettingsData, YotoAccount } from "../types";
+import { featureSet, useMe, useOnboarding } from "../hooks/session";
+import { FEATURES, SOURCES, type AudibleAccount, type Feature, type SecretValue, type SettingsData, type YotoAccount } from "../types";
 import { useConnectYoto } from "./Yoto";
 
 export default function Settings() {
@@ -59,27 +60,48 @@ export default function Settings() {
   );
 }
 
-const USE_OPTIONS: { id: PrimaryUse; label: string }[] = [
-  { id: "yoto", label: "Yoto cards" },
-  { id: "ask", label: "Asking about books" },
-  { id: "both", label: "Both" },
-];
-
-/** How this person mostly uses the app, and a way back into the welcome wizard. */
+/** What this person uses the app for (the rest is tucked away), and a way back into the welcome wizard. */
 function SetupSection() {
   const qc = useQueryClient();
   const toast = useToast();
   const me = useMe();
   const status = useOnboarding();
-  const save = useAction((use: PrimaryUse) => api.patch("/onboarding", { primary_use: use }), [["session"], ["onboarding"]]);
+  const chosen = featureSet(me?.features);
+  const save = useAction((features: Feature[]) => api.patch("/onboarding", { features }), [["session"], ["onboarding"]]);
   const data = status.data;
   const missing = data
     ? [
-        !data.audible.some((a) => a.connected) && "Audible",
-        !data.yoto.connected.length && data.primary_use !== "ask" && "Yoto",
-        !(data.ai.transcribe || data.ai.ask) && data.primary_use !== "yoto" && "Ask",
+        chosen.has("audible") && !data.audible.some((a) => a.connected) && "Audible",
+        chosen.has("yoto") && !data.yoto.connected.length && "Yoto",
+        chosen.has("ask") && !(data.ai.transcribe || data.ai.ask) && "an AI key for Ask",
       ].filter(Boolean)
     : [];
+
+  function toggle(f: Feature) {
+    const next = new Set(chosen);
+    if (next.has(f)) next.delete(f);
+    else next.add(f);
+    if (!FEATURES.some((x) => next.has(x))) return toast("Keep at least one of Yoto cards, Ask or Listen", "error");
+    save.mutate([...FEATURES, ...SOURCES].filter((x) => next.has(x)), {
+      onSuccess: () => qc.invalidateQueries({ queryKey: ["session"] }),
+      onError: (e) => toast(errorText(e), "error"),
+    });
+  }
+
+  const group = (items: Feature[]) => (
+    <div className="feature-toggles">
+      {items.map((f) => (
+        <label key={f} className={`feature-toggle ${chosen.has(f) ? "on" : ""}`}>
+          <input type="checkbox" checked={chosen.has(f)} onChange={() => toggle(f)} />
+          <span>
+            <b>{FEATURE_LABELS[f].label}</b>
+            <small>{FEATURE_LABELS[f].hint}</small>
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+
   return (
     <section className="panel" id="setup">
       <div className="panel-head">
@@ -89,19 +111,13 @@ function SetupSection() {
       </div>
       <div className="stack" style={{ "--gap": "14px" } as React.CSSProperties}>
         <div className="field">
-          <span>I mostly use Audio for</span>
-          <div className="segmented" style={{ alignSelf: "flex-start" }}>
-            {USE_OPTIONS.map((u) => (
-              <button
-                key={u.id}
-                className={(me?.primary_use || "both") === u.id ? "active" : ""}
-                onClick={() => save.mutate(u.id, { onSuccess: () => (qc.invalidateQueries({ queryKey: ["session"] }), toast("Saved")) })}
-              >
-                {u.label}
-              </button>
-            ))}
-          </div>
-          <small>This changes what's shown first. Nothing is hidden for good.</small>
+          <span>What I use Audio for</span>
+          {group(FEATURES)}
+        </div>
+        <div className="field">
+          <span>Where my audio comes from</span>
+          {group(SOURCES)}
+          <small>Only these show in the menu. Turn something on here any time; nothing is deleted when it's off.</small>
         </div>
         {data && (
           <p className="muted" style={{ margin: 0 }}>
@@ -145,12 +161,12 @@ function AudibleSection() {
       <div className="panel-head">
         <SourceIcon kind="audible" size={22} />
         <h3>Audible accounts</h3>
-        <Button size="sm" icon={<Plus size={15} />} onClick={() => setAdding(true)}>Add account</Button>
+        <Button size="sm" icon={<Plus size={15} />} onClick={() => setAdding(true)}>Add an Audible account</Button>
       </div>
       <p className="muted" style={{ marginBottom: 14 }}>
-        Each account signs in once as a new “device”, like the Audible app. Add one for each person whose library you want;
-        books you share through family sharing show up once. Mark which account is yours, and you'll see your own listening
-        position, and Ask will use it.
+        A library can have as many Audible accounts as you like: yours, a partner's, a child's. All their books show up
+        together (books shared through Amazon family sharing show once), and each person sees their own place in a book;
+        mark which account is yours. Each signs in once as a new “device”, like the Audible app.
       </p>
       {accounts.data?.length ? (
         <div className="list">

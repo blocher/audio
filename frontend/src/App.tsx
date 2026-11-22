@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
 import AppStatus from "./components/AppStatus";
+import ImpersonationBar from "./components/Impersonation";
 import Shell from "./components/Shell";
 import { Spinner, ToastProvider } from "./components/ui";
 import AcceptInvite from "./pages/AcceptInvite";
@@ -17,6 +18,7 @@ import PlaylistDetail from "./pages/PlaylistDetail";
 import PodcastDetail from "./pages/PodcastDetail";
 import Podcasts from "./pages/Podcasts";
 import Settings from "./pages/Settings";
+import SuperAdmin from "./pages/SuperAdmin";
 import Welcome from "./pages/Welcome";
 import Yoto from "./pages/Yoto";
 import { clearUserCaches } from "./pwa";
@@ -50,6 +52,7 @@ export default function App() {
   return (
     <ToastProvider>
       <AppStatus />
+      {session.data?.user && <ImpersonationBar user={session.data.user} />}
       {!session.data?.authenticated ? (
         <Routes>
           <Route path="/invite/:token" element={<AcceptInvite />} />
@@ -74,6 +77,7 @@ export default function App() {
             <Route path="/yoto/playlists/:id" element={<PlaylistDetail />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/superadmin" element={<SuperAdmin />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Shell>
