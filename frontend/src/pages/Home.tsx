@@ -88,8 +88,8 @@ export default function Home() {
           )}
         </section>
         <aside className="rail">
-          {has("listen") && <ContinueListening />}
-          {has("yoto") && <YotoRail playlists={playlists.data ?? []} loading={playlists.isLoading} />}
+          <ContinueListening />
+          <YotoRail playlists={playlists.data ?? []} loading={playlists.isLoading} />
         </aside>
       </div>
     </>

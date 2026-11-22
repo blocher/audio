@@ -18,7 +18,6 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useScrollTopOnNavigate } from "../hooks/listMemory";
 import { useJobs } from "../hooks/queries";
-import { featureSet } from "../hooks/session";
 import { clearUserCaches, promptInstall, usePwa } from "../pwa";
 import type { AudibleAccount, User, YotoAccount } from "../types";
 import PlayerBar from "./PlayerBar";
@@ -44,18 +43,14 @@ export default function Shell({ user, children }: { user: User; children: ReactN
     qc.invalidateQueries({ queryKey: ["session"] });
   }
 
-  // Only what this person chose in the wizard; Settings → Your setup turns the rest back on.
-  const has = featureSet(user.features);
-  const yotoFirst = has.has("yoto") && !has.has("ask");
+  // Everyone gets the whole menu; what they picked in the setup wizard only decides what it helped them set up.
   type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; count?: number; show?: boolean };
-  const yotoItem: NavItem = { to: "/yoto", label: "Yoto cards", icon: <SquareStack size={20} />, show: has.has("yoto") };
   const nav: NavItem[] = [
     { to: "/", label: "Home", icon: <House size={20} />, end: true },
-    ...(yotoFirst ? [yotoItem] : []),
     { to: "/library", label: "Library", icon: <LibraryBig size={20} /> },
-    { to: "/podcasts", label: "Podcasts", icon: <Mic size={20} />, show: has.has("podcasts") },
-    { to: "/folders", label: "Local folders", icon: <Folder size={20} />, show: has.has("folders") },
-    ...(yotoFirst ? [] : [yotoItem]),
+    { to: "/podcasts", label: "Podcasts", icon: <Mic size={20} /> },
+    { to: "/folders", label: "Local folders", icon: <Folder size={20} /> },
+    { to: "/yoto", label: "Yoto cards", icon: <SquareStack size={20} /> },
     { to: "/activity", label: "Activity", icon: <Activity size={20} />, count: running || undefined },
     { to: "/superadmin", label: "Super admin", icon: <ShieldCheck size={20} />, show: user.is_admin },
   ].filter((item) => item.show !== false);
