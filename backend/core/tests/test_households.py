@@ -305,3 +305,21 @@ def test_deleting_someone_completely_keeps_a_library_others_still_use(client, be
     assert done["library_deleted"] is False and done["library_shared_with"] == ["Ben"]
     assert Household.objects.filter(pk=household.pk).exists() and Collection.objects.filter(pk=folder.pk).exists()
     assert client.delete(f"/api/users/{ben.pk}?everything=true").status_code == 400  # not yourself
+
+
+def test_leftovers_can_be_cleaned_up(client, ben, household, django_user_model):
+    gran = accept(invite(client, name="Gran")["invite"]["link"])
+    assert gran.get("/api/auth/session").json()["authenticated"]
+    gran_user = django_user_model.objects.get(email="gran@example.com")
+    theirs = Member.objects.get(user=gran_user).household
+    # Removing just the login takes their invitation with it, but leaves an empty library behind.
+    client.delete(f"/api/users/{gran_user.pk}")
+    assert not Invite.objects.exists()
+    assert client.delete(f"/api/superadmin/households/{household.pk}").status_code == 400  # still in use
+    assert client.delete(f"/api/superadmin/households/{theirs.pk}").status_code == 200
+    assert not Household.objects.filter(pk=theirs.pk).exists()
+    # Any invitation record can be deleted, accepted ones too.
+    old = Invite.objects.create(
+        email="x@example.com", token="t", expires_at="2030-01-01T00:00:00Z", accepted_at="2026-01-01T00:00:00Z"
+    )
+    assert client.delete(f"/api/users/invites/{old.pk}").status_code == 200
