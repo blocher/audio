@@ -1,17 +1,20 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FolderInput, KeyRound, Link2, Mic, MonitorSmartphone, Plus, RefreshCw, Share, SlidersHorizontal, SquareStack, Trash2 } from "lucide-react";
+import { Download, FolderInput, KeyRound, Link2, Mic, MonitorSmartphone, Plus, RefreshCw, Share, SlidersHorizontal, Sparkles, SquareStack, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { PACK_STRATEGIES } from "../components/CardPlanner";
+import { AudibleSignInSteps } from "../components/AudibleConnect";
 import { PeopleSection } from "../components/People";
 import ModelPicker, { type ModelChoice } from "../components/ModelPicker";
 import { BitratePicker } from "../components/Tools";
 import { Button, Modal, Note, PageHead, SourceIcon, Spinner, errorText, useToast } from "../components/ui";
 import { bytes, relative } from "../format";
 import { useAction } from "../hooks/queries";
+import { PROVIDER_USES } from "../providers";
 import { clearUserCaches, isIos, promptInstall, requestPersistence, storageInfo, usePwa } from "../pwa";
-import type { AudibleAccount, SettingsData, YotoAccount } from "../types";
+import { useMe, useOnboarding } from "../hooks/session";
+import type { AudibleAccount, PrimaryUse, SecretValue, SettingsData, YotoAccount } from "../types";
 import { useConnectYoto } from "./Yoto";
 
 export default function Settings() {
@@ -25,6 +28,7 @@ export default function Settings() {
     <>
       <PageHead eyebrow="Settings" title="Sources & preferences" lede="Accounts, keys, and how audio gets sized for Yoto." />
       <div className="stack" style={{ "--gap": "22px" } as React.CSSProperties}>
+        <SetupSection />
         <AudibleSection />
         <PeopleSection />
         <div className="grid-2" id="sources">
@@ -52,6 +56,62 @@ export default function Settings() {
         <AppSection />
       </div>
     </>
+  );
+}
+
+const USE_OPTIONS: { id: PrimaryUse; label: string }[] = [
+  { id: "yoto", label: "Yoto cards" },
+  { id: "ask", label: "Asking about books" },
+  { id: "both", label: "Both" },
+];
+
+/** How this person mostly uses the app, and a way back into the welcome wizard. */
+function SetupSection() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const me = useMe();
+  const status = useOnboarding();
+  const save = useAction((use: PrimaryUse) => api.patch("/onboarding", { primary_use: use }), [["session"], ["onboarding"]]);
+  const data = status.data;
+  const missing = data
+    ? [
+        !data.audible.some((a) => a.connected) && "Audible",
+        !data.yoto.connected.length && data.primary_use !== "ask" && "Yoto",
+        !(data.ai.transcribe || data.ai.ask) && data.primary_use !== "yoto" && "Ask",
+      ].filter(Boolean)
+    : [];
+  return (
+    <section className="panel" id="setup">
+      <div className="panel-head">
+        <Sparkles size={18} />
+        <h3>Your setup</h3>
+        <Link className="btn sm" to="/welcome">Run setup again</Link>
+      </div>
+      <div className="stack" style={{ "--gap": "14px" } as React.CSSProperties}>
+        <div className="field">
+          <span>I mostly use Audio for</span>
+          <div className="segmented" style={{ alignSelf: "flex-start" }}>
+            {USE_OPTIONS.map((u) => (
+              <button
+                key={u.id}
+                className={(me?.primary_use || "both") === u.id ? "active" : ""}
+                onClick={() => save.mutate(u.id, { onSuccess: () => (qc.invalidateQueries({ queryKey: ["session"] }), toast("Saved")) })}
+              >
+                {u.label}
+              </button>
+            ))}
+          </div>
+          <small>This changes what's shown first. Nothing is hidden for good.</small>
+        </div>
+        {data && (
+          <p className="muted" style={{ margin: 0 }}>
+            Library: <b>{data.household_name}</b>
+            {data.shared_with.length > 0 && <>, shared with {data.shared_with.join(", ")}</>}.
+            {missing.length > 0 && <> Still to connect: {missing.join(", ")}.</>}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -170,140 +230,42 @@ function AudibleSection() {
 }
 
 function AudibleSignIn({ account, onClose }: { account: AudibleAccount; onClose: () => void }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [loginUrl, setLoginUrl] = useState("");
-  const [pasted, setPasted] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    api
-      .post<{ login_url: string }>(`/audible/accounts/${account.id}/login/start`)
-      .then((r) => setLoginUrl(r.login_url))
-      .catch((e) => setError(errorText(e)));
-  }, [account.id]);
-
-  async function finish() {
-    setBusy(true);
-    setError("");
-    try {
-      await api.post(`/audible/accounts/${account.id}/login/finish`, { redirect_url: pasted });
-      qc.invalidateQueries({ queryKey: ["audible-accounts"] });
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      toast(`${account.name}'s Audible is connected — importing the library now`);
-      onClose();
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <Modal
-      title={`Sign in to Audible for ${account.name}`}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!pasted.includes("maplanding")} loading={busy} onClick={finish}>Finish sign-in</Button>
-        </>
-      }
-    >
-      <ol className="steps">
-        <li>
-          <div className="stack" style={{ "--gap": "8px" } as React.CSSProperties}>
-            <strong>Open Amazon's sign-in page</strong>
-            <span className="muted" style={{ fontSize: "var(--text-sm)" }}>Sign in with {account.name}'s Amazon/Audible account. You may be asked for a code or a captcha, sometimes twice.</span>
-            {loginUrl ? (
-              <a className="btn primary" href={loginUrl} target="_blank" rel="noreferrer" style={{ alignSelf: "flex-start" }}>
-                <ExternalLink size={16} /> Open Amazon sign-in
-              </a>
-            ) : (
-              <Spinner />
-            )}
-          </div>
-        </li>
-        <li>
-          <div className="stack" style={{ "--gap": "8px" } as React.CSSProperties}>
-            <strong>Copy the address of the page you land on</strong>
-            <span className="muted" style={{ fontSize: "var(--text-sm)" }}>
-              After signing in, Amazon shows an error or blank page — that's expected. Copy the whole URL from the address bar; it contains <code>maplanding</code>.
-            </span>
-          </div>
-        </li>
-        <li>
-          <div className="stack" style={{ "--gap": "8px" } as React.CSSProperties}>
-            <strong>Paste it here</strong>
-            <textarea className="textarea" value={pasted} onChange={(e) => setPasted(e.target.value.trim())} placeholder="https://www.amazon.com/ap/maplanding?…openid.oa2.authorization_code=…" />
-          </div>
-        </li>
-      </ol>
-      {error && <div style={{ marginTop: 14 }}><Note tone="error">{error}</Note></div>}
+    <Modal title={`Sign in to Audible for ${account.name}`} onClose={onClose} footer={<Button variant="ghost" onClick={onClose}>Cancel</Button>}>
+      <AudibleSignInSteps account={account} onConnected={onClose} />
     </Modal>
   );
 }
 
 function YotoSection({ data }: { data: SettingsData }) {
   const qc = useQueryClient();
-  const toast = useToast();
+  const me = useMe();
   const connect = useConnectYoto();
   const accounts = useQuery({ queryKey: ["yoto-accounts"], queryFn: () => api.get<YotoAccount[]>("/yoto/accounts") });
-  const [clientId, setClientId] = useState(data.yoto.client_id ?? "");
-  const [secret, setSecret] = useState("");
-  const save = useAction(() => api.put("/settings", { service: "yoto", values: { client_id: clientId, client_secret: secret } }), [["settings"]]);
-  const remove = useAction((id: number) => api.del(`/yoto/accounts/${id}`), [["yoto-accounts"]]);
+  const remove = useAction((id: number) => api.del(`/yoto/accounts/${id}`), [["yoto-accounts"], ["onboarding"]]);
+  const ready = data.capabilities.yoto_ready;
+  const connected = (accounts.data ?? []).filter((a) => a.connected);
   return (
     <section className="panel" id="yoto">
       <div className="panel-head">
         <SquareStack size={20} />
         <h3>Yoto</h3>
+        {ready && (
+          <Button size="sm" variant={connected.length ? undefined : "primary"} icon={<Link2 size={15} />} onClick={connect}>
+            {connected.length ? "Connect another" : "Connect your Yoto account"}
+          </Button>
+        )}
       </div>
-      <div className="grid-2">
-        <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
-          <ol className="steps" style={{ fontSize: "var(--text-sm)" }}>
-            <li>
-              <span>
-                Create a <b>confidential</b> app at{" "}
-                <a href="https://dashboard.yoto.dev/" target="_blank" rel="noreferrer" style={{ color: "var(--terracotta)" }}>dashboard.yoto.dev</a>.
-              </span>
-            </li>
-            <li>
-              <span>
-                Add this callback URL: <code>{data.capabilities.yoto_redirect_uri}</code>
-              </span>
-            </li>
-            <li>
-              <span>
-                Tick these scopes on the app: {data.capabilities.yoto_scopes.map((sc, i) => (
-                  <span key={sc}>{i > 0 && ", "}<code>{sc}</code></span>
-                ))}
-              </span>
-            </li>
-            <li>
-              <span>Paste the client ID and secret here, then connect your account.</span>
-            </li>
-          </ol>
-        </div>
-        <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
-          <label className="field">
-            <span>Client ID</span>
-            <input className="input" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>Client secret</span>
-            <input className="input" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={data.yoto.client_secret.set ? data.yoto.client_secret.masked : ""} />
-          </label>
-          <div className="row">
-            <Button onClick={() => save.mutate(undefined, { onSuccess: () => (setSecret(""), toast("Saved")) })} loading={save.isPending}>Save</Button>
-            <Button variant="sage" icon={<Link2 size={16} />} disabled={!data.yoto.client_id} onClick={connect}>Connect a Yoto account</Button>
-          </div>
-        </div>
-      </div>
-      {(accounts.data ?? []).filter((a) => a.connected).length > 0 && (
-        <div className="list" style={{ marginTop: 16 }}>
-          {accounts.data!.filter((a) => a.connected).map((a) => (
+      <p className="muted" style={{ marginBottom: 14 }}>
+        {ready
+          ? "Sign in with Yoto once, and cards you make here go straight to your Yoto app."
+          : me?.is_admin
+            ? "Set up the Yoto app below once; then everyone can connect their own Yoto account with one button."
+            : "Yoto isn't switched on for this site yet. Ask a super admin to set it up."}
+      </p>
+      {connected.length > 0 && (
+        <div className="list" style={{ marginBottom: 16 }}>
+          {connected.map((a) => (
             <div key={a.id} className="list-row">
               <SquareStack size={18} />
               <div>
@@ -321,26 +283,83 @@ function YotoSection({ data }: { data: SettingsData }) {
           ))}
         </div>
       )}
+      {me?.is_admin && (ready ? (
+        <details className="admin-details">
+          <summary>Yoto developer app (super admins)</summary>
+          <YotoAppSettings data={data} />
+        </details>
+      ) : (
+        <YotoAppSettings data={data} />
+      ))}
     </section>
   );
 }
 
-function SecretField({ label, set, masked, value, onChange }: { label: string; set: boolean; masked: string; value: string; onChange: (v: string) => void }) {
+/** The developer app every household signs in through. Set up once, by a super admin. */
+function YotoAppSettings({ data }: { data: SettingsData }) {
+  const toast = useToast();
+  const [clientId, setClientId] = useState(data.yoto.client_id ?? "");
+  const [secret, setSecret] = useState("");
+  const save = useAction(() => api.put("/settings", { service: "yoto", values: { client_id: clientId, client_secret: secret } }), [["settings"], ["onboarding"]]);
   return (
-    <label className="field">
-      <span>{label}</span>
-      <input className="input" type="password" value={value} onChange={(e) => onChange(e.target.value)} placeholder={set ? `${masked} (saved)` : "Not set"} autoComplete="off" />
-    </label>
+    <div className="grid-2" style={{ marginTop: 12 }}>
+      <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
+        <ol className="steps" style={{ fontSize: "var(--text-sm)" }}>
+          <li>
+            <span>
+              Create a <b>confidential</b> app at{" "}
+              <a href="https://dashboard.yoto.dev/" target="_blank" rel="noreferrer" style={{ color: "var(--terracotta)" }}>dashboard.yoto.dev</a>.
+            </span>
+          </li>
+          <li>
+            <span>
+              Add this callback URL: <code>{data.capabilities.yoto_redirect_uri}</code>
+            </span>
+          </li>
+          <li>
+            <span>
+              Tick these scopes on the app: {data.capabilities.yoto_scopes.map((sc, i) => (
+                <span key={sc}>{i > 0 && ", "}<code>{sc}</code></span>
+              ))}
+            </span>
+          </li>
+          <li>
+            <span>Paste the client ID and secret here. Everyone on this site signs in to Yoto through this one app.</span>
+          </li>
+        </ol>
+      </div>
+      <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
+        <label className="field">
+          <span>Client ID</span>
+          <input className="input" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Client secret</span>
+          <input className="input" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={data.yoto.client_secret.set ? data.yoto.client_secret.masked : ""} />
+        </label>
+        <div className="row">
+          <Button onClick={() => save.mutate(undefined, { onSuccess: () => (setSecret(""), toast("Saved")) })} loading={save.isPending}>Save</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-const PROVIDER_USES: Record<string, string> = {
-  anthropic: "Ask",
-  openai: "Transcription & Ask",
-  gemini: "Transcription & Ask",
-  xai: "Ask",
-  groq: "Transcription & Ask · cheapest Whisper",
-};
+function SecretField({ label, saved, value, onChange }: { label: string; saved: SecretValue; value: string; onChange: (v: string) => void }) {
+  const placeholder = !saved.set
+    ? "Not set"
+    : saved.source === "shared"
+      ? "Shared with you (hidden)"
+      : saved.source === "server"
+        ? "Set on the server"
+        : `${saved.masked} (saved)`;
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input className="input" type="password" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoComplete="off" />
+    </label>
+  );
+}
 
 function KeysSection({ data }: { data: SettingsData }) {
   const qc = useQueryClient();
@@ -387,21 +406,23 @@ function KeysSection({ data }: { data: SettingsData }) {
         )}
       </div>
       <p className="muted" style={{ marginBottom: 14 }}>
-        Add a key for any provider you use; its current models then appear in the transcription and Ask pickers. Keys are stored encrypted.
+        <b>Only needed for Transcribe and Ask.</b> Yoto cards, listening and everything else work without a key. Add a key for any
+        provider you use; its current models then appear in the transcription and Ask pickers. Keys are stored encrypted.
+        {data.providers.some((p) => data[p.id].api_key.source === "shared") && " Some keys are shared with you by another library; a key you add here is used instead."}
       </p>
       <div className="grid-2">
         {data.providers.map((p) => {
           const saved = data[p.id].api_key;
           return (
             <div key={p.id} className="stack" style={{ "--gap": "6px" } as React.CSSProperties}>
-              <SecretField label={`${p.label} key`} set={saved.set} masked={saved.masked} value={keys[p.id] ?? ""} onChange={(v) => setKeys((k) => ({ ...k, [p.id]: v }))} />
+              <SecretField label={`${p.label} key`} saved={saved} value={keys[p.id] ?? ""} onChange={(v) => setKeys((k) => ({ ...k, [p.id]: v }))} />
               <div className="row" style={{ fontSize: "var(--text-xs)" }}>
                 <span className="muted">{PROVIDER_USES[p.id]}</span>
                 <span className="spacer" />
                 <a href={p.key_url} target="_blank" rel="noreferrer" style={{ color: "var(--terracotta)" }}>
                   Get a key
                 </a>
-                {saved.set && (
+                {saved.source === "own" && (
                   <button className="btn ghost sm" style={{ height: 22, padding: "0 6px" }} onClick={() => confirm(`Remove the ${p.label} key?`) && removeKey.mutate(p.id)}>
                     Remove
                   </button>

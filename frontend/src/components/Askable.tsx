@@ -2,6 +2,7 @@ import { MessageCircle, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAction, useActiveJob } from "../hooks/queries";
+import { useAskVisible, useOnboarding } from "../hooks/session";
 import type { Book, Job } from "../types";
 import { Button, errorText, useToast } from "./ui";
 
@@ -42,6 +43,7 @@ export function MakeAskableButton({
   onAsk?: () => void;
 }) {
   const { job, start, pending } = useMakeAskable(book.id);
+  const status = useOnboarding();
   const state = askState(book);
   if (job)
     return (
@@ -59,6 +61,13 @@ export function MakeAskableButton({
         <MessageCircle size={18} /> Ask about this book
       </Link>
     );
+  if (status.data && !status.data.ai.transcribe)
+    // Making a book askable needs an AI key; send them to the one optional wizard step rather than an error.
+    return (
+      <Link to="/welcome?step=ai" className={`btn ${variant} ${size}`} title="Ask needs an AI key; it takes a couple of minutes to add">
+        <Sparkles size={18} /> Set up Ask
+      </Link>
+    );
   return (
     <Button size={size} variant={variant} icon={<Sparkles size={18} />} loading={pending} onClick={start} className="askable-btn">
       {state === "partial" ? "Finish making askable" : "Make askable"}
@@ -69,7 +78,11 @@ export function MakeAskableButton({
 /** The footer under a book's cover in the library: straight to Ask, or one tap to get it there. */
 export function CardAskFooter({ book }: { book: Pick<Book, "id" | "track_count" | "transcribed_count"> }) {
   const { job, start, pending } = useMakeAskable(book.id);
+  const status = useOnboarding();
+  const showAsk = useAskVisible();
   const state = askState(book);
+  const noAi = status.data && !status.data.ai.transcribe;
+  if (!showAsk && state === "none" && !job) return null;
   if (job)
     return (
       <div className="card-ask working" title={job.message || job.title}>
@@ -81,6 +94,12 @@ export function CardAskFooter({ book }: { book: Pick<Book, "id" | "track_count" 
     return (
       <Link to={askLink(book.id)} className="card-ask ask">
         <MessageCircle size={14} /> Ask
+      </Link>
+    );
+  if (noAi)
+    return (
+      <Link to="/welcome?step=ai" className="card-ask make" title="Ask needs an AI key; it takes a couple of minutes to add">
+        <Sparkles size={14} /> Set up Ask
       </Link>
     );
   return (

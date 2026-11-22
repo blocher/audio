@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Star } from "lucide-react";
+import { ArrowRight, MessageCircle, SquareStack, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import {
@@ -10,7 +10,8 @@ import {
   useLibraryItems,
   type LibraryItem,
 } from "../components/LibraryGrid";
-import { Empty, PageHead } from "../components/ui";
+import { Empty, PageHead, SourceIcon } from "../components/ui";
+import { useOnboarding } from "../hooks/session";
 import { useListMemory } from "../hooks/listMemory";
 import type { Playlist, Session } from "../types";
 
@@ -39,7 +40,22 @@ export default function Home() {
 
   return (
     <>
-      <PageHead title={name ? `Hello, ${name}` : "Hello"} lede="Your starred audio, kept here just for you." />
+      <PageHead
+        title={name ? `Hello, ${name}` : "Hello"}
+        lede="Your starred audio, kept here just for you."
+        actions={
+          user?.primary_use === "yoto" ? (
+            <Link className="btn primary" to="/yoto?new=1">
+              <SquareStack size={17} /> Make Yoto cards
+            </Link>
+          ) : user?.primary_use === "ask" ? (
+            <Link className="btn primary" to="/library?listening=1">
+              <MessageCircle size={17} /> Ask about a book
+            </Link>
+          ) : undefined
+        }
+      />
+      <SetupNudge />
       <div className="with-rail">
         <section>
           <Section
@@ -95,6 +111,49 @@ function Section({
         {more && <Link to={more.to}>{more.label} →</Link>}
       </div>
       {children ?? (items && <CoverGrid items={items} />)}
+    </section>
+  );
+}
+
+/** A short "still to do" card while something this person needs isn't connected yet. */
+function SetupNudge() {
+  const status = useOnboarding();
+  const data = status.data;
+  if (!data) return null;
+  const use = data.primary_use || "both";
+  const todo = [
+    !data.audible.some((a) => a.connected) && {
+      step: "audible",
+      icon: <SourceIcon kind="audible" size={18} />,
+      label: "Connect Audible",
+      why: "to see your audiobooks",
+    },
+    use !== "ask" &&
+      !data.yoto.connected.length &&
+      data.yoto.ready && { step: "yoto", icon: <SquareStack size={18} />, label: "Connect Yoto", why: "to send cards to your player" },
+    use !== "yoto" &&
+      !(data.ai.transcribe && data.ai.ask) && {
+        step: "ai",
+        icon: <MessageCircle size={18} />,
+        label: "Set up Ask",
+        why: "to ask questions about books",
+      },
+  ].filter(Boolean) as { step: string; icon: React.ReactNode; label: string; why: string }[];
+  if (!todo.length) return null;
+  return (
+    <section className="panel setup-nudge">
+      <strong>Finish setting up</strong>
+      <div className="setup-nudge-items">
+        {todo.map((t) => (
+          <Link key={t.step} to={`/welcome?step=${t.step}`} className="setup-nudge-item">
+            {t.icon}
+            <span>
+              <b>{t.label}</b> <span className="muted">{t.why}</span>
+            </span>
+            <ArrowRight size={16} />
+          </Link>
+        ))}
+      </div>
     </section>
   );
 }

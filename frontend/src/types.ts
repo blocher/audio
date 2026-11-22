@@ -1,19 +1,72 @@
 // Shapes returned by the Django Ninja API.
 
+export type PrimaryUse = "yoto" | "ask" | "both" | "";
+
 export interface User {
   id: number;
   username: string;
   first_name: string;
   email: string;
+  /** A super admin: invites people and manages everyone. */
   is_admin: boolean;
+  household_id: number;
+  household_name: string;
+  primary_use: PrimaryUse;
+  /** Finished (or skipped) the welcome wizard. */
+  onboarded: boolean;
 }
 
 /** Someone who can sign in, as Settings → People shows them. */
 export interface Person extends User {
   /** Their own Audible account; null means the first connected one. */
   audible_account_id: number | null;
+  /** The Audible accounts in their household, to pick theirs from. */
+  audible_accounts: { id: number; name: string }[];
   last_login: string | null;
   is_me: boolean;
+}
+
+/** People who share one library. */
+export interface Household {
+  id: number;
+  name: string;
+  members: string[];
+  shares_ai_keys_from: string | null;
+  is_mine: boolean;
+}
+
+export interface Invite {
+  id: number;
+  email: string;
+  name: string;
+  /** The household they'll share, or null for a library of their own. */
+  joining: string | null;
+  share_ai_keys: boolean;
+  make_admin: boolean;
+  created_at: string;
+  expires_at: string;
+  emailed_at: string | null;
+  expired: boolean;
+  link: string;
+  invited_by: string;
+}
+
+export interface InviteSent {
+  invite: Invite;
+  emailed: boolean;
+  email_error: string;
+}
+
+/** What someone has connected so far, for the welcome wizard and setup reminders. */
+export interface Onboarding {
+  name: string;
+  primary_use: PrimaryUse;
+  onboarded: boolean;
+  household_name: string;
+  shared_with: string[];
+  audible: { id: number; name: string; connected: boolean; locale: string }[];
+  yoto: { ready: boolean; connected: string[] };
+  ai: { transcribe: boolean; ask: boolean; borrowed: boolean };
 }
 
 export interface Session {
@@ -315,6 +368,8 @@ export interface Conversation {
 export interface SecretValue {
   set: boolean;
   masked: string;
+  /** "own", "shared" (another household's key), "server" (the server's environment) or "" when not set. */
+  source: "own" | "shared" | "server" | "";
 }
 
 export type ProviderId = "anthropic" | "openai" | "gemini" | "xai" | "groq";
@@ -347,7 +402,16 @@ export interface SettingsData {
     groq_context_tokens: number;
   };
   providers: ProviderInfo[];
-  capabilities: { local_import_roots: string[]; ffmpeg: boolean; yoto_redirect_uri: string; yoto_scopes: string[] };
+  capabilities: {
+    local_import_roots: string[];
+    ffmpeg: boolean;
+    yoto_redirect_uri: string;
+    yoto_scopes: string[];
+    /** A super admin has set up the Yoto app, so anyone can connect their Yoto account. */
+    yoto_ready: boolean;
+    /** Invitations are emailed (otherwise the link is copied by hand). */
+    email: boolean;
+  };
 }
 
 export interface AiModel {

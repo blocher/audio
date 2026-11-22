@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
 import AppStatus from "./components/AppStatus";
 import Shell from "./components/Shell";
 import { Spinner, ToastProvider } from "./components/ui";
+import AcceptInvite from "./pages/AcceptInvite";
 import Activity from "./pages/Activity";
 import BookDetail from "./pages/BookDetail";
 import FolderDetail from "./pages/FolderDetail";
@@ -16,6 +17,7 @@ import PlaylistDetail from "./pages/PlaylistDetail";
 import PodcastDetail from "./pages/PodcastDetail";
 import Podcasts from "./pages/Podcasts";
 import Settings from "./pages/Settings";
+import Welcome from "./pages/Welcome";
 import Yoto from "./pages/Yoto";
 import { clearUserCaches } from "./pwa";
 import type { Session } from "./types";
@@ -23,6 +25,7 @@ import type { Session } from "./types";
 export default function App() {
   const qc = useQueryClient();
   const session = useQuery({ queryKey: ["session"], queryFn: () => api.get<Session>("/auth/session"), staleTime: Infinity });
+  const location = useLocation();
 
   useEffect(() => {
     const onUnauthorized = () => qc.invalidateQueries({ queryKey: ["session"] });
@@ -48,7 +51,15 @@ export default function App() {
     <ToastProvider>
       <AppStatus />
       {!session.data?.authenticated ? (
-        <Login />
+        <Routes>
+          <Route path="/invite/:token" element={<AcceptInvite />} />
+          <Route path="*" element={<Login />} />
+        </Routes>
+      ) : location.pathname === "/welcome" ? (
+        <Welcome />
+      ) : !session.data.user!.onboarded ? (
+        // Someone new starts on the welcome wizard (it can be skipped).
+        <Navigate to="/welcome" replace />
       ) : (
         <Shell user={session.data.user!}>
           <Routes>

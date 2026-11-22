@@ -42,12 +42,16 @@ export default function Shell({ user, children }: { user: User; children: ReactN
     qc.invalidateQueries({ queryKey: ["session"] });
   }
 
-  const nav = [
+  type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; count?: number };
+  const yotoItem: NavItem = { to: "/yoto", label: "Yoto cards", icon: <SquareStack size={20} /> };
+  const nav: NavItem[] = [
     { to: "/", label: "Home", icon: <House size={20} />, end: true },
+    // Someone who's mostly here for Yoto cards gets them right under Home.
+    ...(user.primary_use === "yoto" ? [yotoItem] : []),
     { to: "/library", label: "Library", icon: <LibraryBig size={20} /> },
     { to: "/podcasts", label: "Podcasts", icon: <Mic size={20} /> },
     { to: "/folders", label: "Local folders", icon: <Folder size={20} /> },
-    { to: "/yoto", label: "Yoto cards", icon: <SquareStack size={20} /> },
+    ...(user.primary_use === "yoto" ? [] : [yotoItem]),
     { to: "/activity", label: "Activity", icon: <Activity size={20} />, count: running || undefined },
   ];
 
@@ -84,7 +88,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
             </Link>
           ))}
           {!audible.data?.length && !yoto.data?.some((y) => y.connected) && (
-            <Link to="/settings" className="source-link" style={{ color: "var(--walnut-muted)" }}>
+            <Link to="/welcome?step=audible" className="source-link" style={{ color: "var(--walnut-muted)" }}>
               Connect Audible or Yoto →
             </Link>
           )}
@@ -104,8 +108,9 @@ export default function Shell({ user, children }: { user: User; children: ReactN
 
         <div className="sidebar-foot">
           <span className="avatar">{(user.first_name || user.username).slice(0, 1).toUpperCase()}</span>
-          <span className="truncate" style={{ flex: 1, color: "var(--walnut-ink)" }}>
+          <span className="truncate" style={{ flex: 1, color: "var(--walnut-ink)", lineHeight: 1.2 }}>
             {user.first_name || user.username}
+            <small className="truncate" style={{ display: "block", color: "var(--walnut-muted)" }}>{user.household_name}</small>
           </span>
           <button onClick={logout} title="Sign out" aria-label="Sign out">
             <LogOut size={17} />
