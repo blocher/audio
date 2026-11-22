@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Eye, Home, KeyRound, Mail, Pencil, RefreshCw, Send, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Copy, Eye, Home, KeyRound, Mail, Pencil, RefreshCw, Send, Trash2, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { relative } from "../format";
@@ -63,7 +63,14 @@ export function PeopleSection() {
             )}
             <div className="list">
               {group.people.map((p) => (
-                <PersonRow key={p.id} person={p} isAdmin={isAdmin} onEdit={() => setEditing(p)} onPassword={() => setPassword(p)} />
+                <PersonRow
+                  key={p.id}
+                  person={p}
+                  isAdmin={isAdmin}
+                  sharedWith={group.people.filter((o) => o.id !== p.id).map((o) => o.first_name || o.username)}
+                  onEdit={() => setEditing(p)}
+                  onPassword={() => setPassword(p)}
+                />
               ))}
             </div>
           </div>
@@ -106,14 +113,26 @@ function HouseholdHead({ name, household, isAdmin, mine }: { name: string; house
   );
 }
 
-function PersonRow({ person: p, isAdmin, onEdit, onPassword }: { person: Person; isAdmin: boolean; onEdit: () => void; onPassword: () => void }) {
+function PersonRow({
+  person: p,
+  isAdmin,
+  sharedWith,
+  onEdit,
+  onPassword,
+}: {
+  person: Person;
+  isAdmin: boolean;
+  sharedWith: string[];
+  onEdit: () => void;
+  onPassword: () => void;
+}) {
   const toast = useToast();
   const refresh: string[][] = [["people"], ["audible-accounts"], ["books"], ["session"]];
   const pickAccount = useAction(
     ({ id, account }: { id: number; account: number | null }) => api.patch(`/users/${id}`, { audible_account_id: account }),
     refresh,
   );
-  const remove = useAction((id: number) => api.del(`/users/${id}`), [["people"], ["households"]]);
+  const [removing, setRemoving] = useState(false);
   const canEdit = isAdmin || p.is_me;
   const qc = useQueryClient();
 
@@ -179,13 +198,11 @@ function PersonRow({ person: p, isAdmin, onEdit, onPassword }: { person: Person;
             iconOnly
             icon={<Trash2 size={14} />}
             aria-label={`Remove ${name}`}
-            onClick={() =>
-              confirm(`Remove ${name}? They can't sign in any more; their stars and conversations go too. Their library stays.`) &&
-              remove.mutate(p.id, { onSuccess: () => toast(`Removed ${name}`) })
-            }
+            onClick={() => setRemoving(true)}
           />
         )}
       </div>
+      {removing && <RemoveDialog person={p} sharedWith={sharedWith} onClose={() => setRemoving(false)} />}
     </div>
   );
 }
@@ -234,7 +251,7 @@ function PendingInvites({ invites }: { invites: Invite[] }) {
               >
                 {i.expired ? "Renew" : "Resend"}
               </Button>
-              <Button size="sm" variant="danger" iconOnly icon={<X size={14} />} aria-label={`Cancel ${i.email}'s invitation`} onClick={() => confirm(`Cancel the invitation to ${i.email}? The link stops working.`) && cancel.mutate(i.id)} />
+              <Button size="sm" variant="danger" iconOnly icon={<Trash2 size={14} />} aria-label={`Delete ${i.email}'s invitation`} title="Delete invitation" onClick={() => confirm(`Delete the invitation to ${i.email}? The link stops working and it's gone for good.`) && cancel.mutate(i.id)} />
             </div>
           </div>
         ))}
@@ -532,6 +549,70 @@ function PasswordDialog({ person, onClose }: { person: Person; onClose: () => vo
           <input className="input" type="password" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" />
           {mismatch && <small style={{ color: "var(--berry)" }}>These don't match.</small>}
         </label>
+        {error && <Note tone="error">{error}</Note>}
+      </div>
+    </Modal>
+  );
+}
+
+/** Remove a login, or delete the person completely: their library too when nobody else uses it. */
+function RemoveDialog({ person, sharedWith, onClose }: { person: Person; sharedWith: string[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const name = person.first_name || person.username;
+  const [everything, setEverything] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const shared = sharedWith.length > 0;
+
+  async function remove() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.del<{ library_deleted: boolean }>(`/users/${person.id}${everything ? "?everything=true" : ""}`);
+      for (const key of ["people", "households", "invites", "superadmin"]) qc.invalidateQueries({ queryKey: [key] });
+      toast(result.library_deleted ? `Deleted ${name} and their library` : `Removed ${name}`);
+      onClose();
+    } catch (e) {
+      setError(errorText(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Remove ${name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="danger" icon={<Trash2 size={15} />} loading={busy} onClick={() => void remove()}>
+            {everything ? "Delete everything" : "Remove login"}
+          </Button>
+        </>
+      }
+    >
+      <div className="stack" style={{ "--gap": "14px" } as React.CSSProperties}>
+        <div className="choices">
+          <label>
+            <input type="radio" name="remove-how" checked={everything} onChange={() => setEverything(true)} />
+            <strong>Delete completely, as if they'd never been here</strong>
+            <small>
+              Their login, conversations and invitation
+              {shared
+                ? `. Their library stays, because ${sharedWith.join(" and ")} still use${sharedWith.length === 1 ? "s" : ""} it.`
+                : ", and their whole library: Audible accounts (signed out at Amazon too), books and downloaded audio, podcasts, folders, Yoto cards made here, AI keys and settings."}
+            </small>
+          </label>
+          <label>
+            <input type="radio" name="remove-how" checked={!everything} onChange={() => setEverything(false)} />
+            <strong>Just stop them signing in</strong>
+            <small>Their library and everything in it stays here.</small>
+          </label>
+        </div>
+        {everything && !shared && (
+          <Note tone="warn">This can't be undone. Cards already on their Yoto account stay there; delete those in the Yoto app if you want.</Note>
+        )}
         {error && <Note tone="error">{error}</Note>}
       </div>
     </Modal>

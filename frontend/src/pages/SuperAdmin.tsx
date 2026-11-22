@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Eye, Home, KeyRound, Mail, RefreshCw, Send, X } from "lucide-react";
+import { Copy, Eye, Home, KeyRound, Mail, RefreshCw, Send, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { api } from "../api";
@@ -203,7 +203,7 @@ function InvitesPanel({ data }: { data: Overview }) {
                   >
                     {i.expired ? "Renew" : "Resend"}
                   </Button>
-                  <Button size="sm" variant="danger" iconOnly icon={<X size={14} />} aria-label={`Cancel ${i.email}'s invitation`} onClick={() => confirm(`Cancel the invitation to ${i.email}?`) && cancel.mutate(i.id)} />
+                  <Button size="sm" variant="danger" iconOnly icon={<Trash2 size={14} />} aria-label={`Delete ${i.email}'s invitation`} title="Delete invitation" onClick={() => confirm(`Delete the invitation to ${i.email}? The link stops working and it's gone for good.`) && cancel.mutate(i.id)} />
                 </div>
               )}
             </div>

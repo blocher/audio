@@ -250,13 +250,19 @@ def set_password(request, user_id: int, payload: PasswordIn):
 
 
 @router.delete("/{int:user_id}")
-def remove_person(request, user_id: int):
+def remove_person(request, user_id: int, everything: bool = False):
+    """Remove a login. With ``everything``, also their conversations and invitations, and their library (books,
+    downloads, podcasts, folders, cards, keys) when nobody else shares it: as if they had never been here."""
     _require_admin(request)
     user = get_object_or_404(User, pk=user_id)
     if user.pk == request.user.pk:
         raise HttpError(400, "You can't remove yourself")
-    user.delete()
-    return {"ok": True}
+    if not everything:
+        user.delete()
+        return {"ok": True, "library_deleted": False}
+    from .purge import purge_person
+
+    return {"ok": True, **purge_person(user)}
 
 
 # ---------- households ----------
