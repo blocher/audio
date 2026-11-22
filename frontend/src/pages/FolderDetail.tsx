@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { RESTORE, listHref } from "../hooks/listMemory";
-import CardPlanner from "../components/CardPlanner";
+import SendToYoto from "../components/SendToYoto";
 import { AskPanel } from "../components/Ask";
 import { TranscriptView, useWorkPosition } from "../components/Listen";
 import TrackList, { queueFor } from "../components/TrackList";
@@ -58,9 +58,9 @@ export default function FolderDetail() {
         actions={
           <>
             <Button variant="primary" icon={<SquareStack size={16} />} disabled={!c.tracks.length} onClick={() => setDialog("yoto")}>
-              Make Yoto cards
+              Send to Yoto
             </Button>
-            <Button icon={<Minimize2 size={16} />} disabled={!c.tracks.length} onClick={() => setDialog("downsize")}>Downsize</Button>
+            <Button icon={<Minimize2 size={16} />} disabled={!c.tracks.length} onClick={() => setDialog("downsize")}>Make smaller</Button>
             <Button icon={<FileText size={16} />} disabled={!c.tracks.length} onClick={() => setDialog("transcribe")}>Transcribe</Button>
             <Button icon={<Plus size={16} />} onClick={() => setDialog("add")}>Add files</Button>
             <StarButton kind="folder" id={c.id} title={c.name} />
@@ -129,7 +129,7 @@ export default function FolderDetail() {
       {dialog === "add" && <ImportDialog collection={c} onClose={() => setDialog(null)} />}
       {dialog === "downsize" && <DownsizeDialog tracks={c.tracks} onClose={() => setDialog(null)} />}
       {dialog === "transcribe" && <TranscribeDialog tracks={c.tracks} onClose={() => setDialog(null)} />}
-      {dialog === "yoto" && <CardPlanner groups={[{ key: `folder:${c.id}`, title: c.name, track_ids: ids }]} onClose={() => setDialog(null)} />}
+      {dialog === "yoto" && <SendToYoto source={{ kind: "groups", groups: [{ key: `folder:${c.id}`, title: c.name, track_ids: ids }] }} returnTo={`/folders/${c.id}`} onClose={() => setDialog(null)} />}
     </>
   );
 }

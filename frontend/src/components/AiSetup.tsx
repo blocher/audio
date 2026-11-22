@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ChevronDown, ClipboardPaste, ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { connectInPopup, openPopup } from "../connect";
+import { goToSignIn, here } from "../connect";
 import { PROVIDER_USES } from "../providers";
 import type { SettingsData } from "../types";
 import { Button, Note, errorText, useToast } from "./ui";
@@ -44,24 +44,27 @@ export function OpenRouterConnect({ onSaved, compact }: { onSaved?: () => void; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  // Coming back from OpenRouter's sign-in (this same tab went there and back).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("service") !== "openrouter" || (params.get("connected") !== "1" && !params.get("error"))) return;
+    for (const k of ["settings", "ai-models", "onboarding"]) qc.invalidateQueries({ queryKey: [k] });
+    if (params.get("error")) setError(params.get("error")!);
+    else {
+      toast("OpenRouter is connected. Ask and Transcribe are ready.");
+      onSaved?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function connect() {
     setBusy(true);
     setError("");
     try {
-      const { url } = await api.post<{ url: string }>("/connect/openrouter/start", {
-        popup: true,
-        return_to: window.location.pathname + window.location.search,
-      });
-      const result = await connectInPopup(url, "openrouter");
-      for (const k of ["settings", "ai-models", "onboarding"]) qc.invalidateQueries({ queryKey: [k] });
-      if (result.error) setError(result.error);
-      else {
-        toast("OpenRouter is connected. Ask and Transcribe are ready.");
-        onSaved?.();
-      }
+      const { url } = await api.post<{ url: string }>("/connect/openrouter/start", { popup: false, return_to: here() });
+      await goToSignIn(url);
     } catch (e) {
-      if (!(e instanceof Error && e.message === "closed")) setError(errorText(e));
-    } finally {
+      setError(errorText(e));
       setBusy(false);
     }
   }
@@ -70,9 +73,9 @@ export function OpenRouterConnect({ onSaved, compact }: { onSaved?: () => void; 
     <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
       {!compact && (
         <p className="muted" style={{ margin: 0 }}>
-          OpenRouter is one account for AI from OpenAI, Anthropic and Google. A window opens: sign in (Google works),
-          add some credit if it asks ($5 lasts a long time), then click <b>Authorize</b>. It closes by itself, and you're
-          done. You can set a spending limit, or disconnect, on OpenRouter any time.
+          OpenRouter is one account for AI from OpenAI, Anthropic and Google. You'll go to OpenRouter: sign in (Google
+          works), add some credit if it asks ($5 lasts a long time), then click <b>Authorize</b>. It brings you straight
+          back here, and you're done. You can set a spending limit, or disconnect, on OpenRouter any time.
         </p>
       )}
       {error && <Note tone="error">{error}</Note>}
@@ -168,12 +171,10 @@ function KeySetup({ onSaved }: { onSaved?: () => void }) {
                   style={{ alignSelf: "flex-start" }}
                   onClick={() => {
                     setWaiting(true);
-                    if (!openPopup("https://platform.openai.com/api-keys", "openai-keys")) {
-                      window.open("https://platform.openai.com/api-keys", "_blank", "noreferrer");
-                    }
+                    window.open("https://platform.openai.com/api-keys", "_blank", "noreferrer");
                   }}
                 >
-                  Open OpenAI beside this window
+                  Open OpenAI in a new tab
                 </Button>
               </div>
             </li>

@@ -45,6 +45,12 @@ export function MakeAskableButton({
   const { job, start, pending } = useMakeAskable(book.id);
   const status = useOnboarding();
   const state = askState(book);
+  if (job && (job.kind === "yoto_send" || job.kind === "yoto_sync"))
+    return (
+      <Button size={size} variant={variant} icon={<Sparkles size={18} />} disabled className="askable-btn" title="Wait for the Yoto send to finish">
+        Make askable
+      </Button>
+    );
   if (job)
     return (
       <Button size={size} variant={variant} loading disabled className="askable-btn">
@@ -77,10 +83,17 @@ export function MakeAskableButton({
 
 /** The footer under a book's cover in the library: straight to Ask, or one tap to get it there. */
 export function CardAskFooter({ book }: { book: Pick<Book, "id" | "track_count" | "transcribed_count"> }) {
+  // A send to Yoto downloads the book too; its progress shows on the Yoto button, not here.
   const { job, start, pending } = useMakeAskable(book.id);
   const status = useOnboarding();
   const state = askState(book);
   const noAi = status.data && !status.data.ai.transcribe;
+  if (job && (job.kind === "yoto_send" || job.kind === "yoto_sync"))
+    return (
+      <div className="card-ask working">
+        <Sparkles size={14} /> Ask
+      </div>
+    );
   if (job)
     return (
       <div className="card-ask working" title={job.message || job.title}>

@@ -1,19 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, FileText, ListMusic, MessageCircle, Minimize2, Play, RefreshCw, SquareStack, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, FileText, Headphones, ListMusic, MessageCircle, Minimize2, MoreHorizontal, Play, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { RESTORE, listHref } from "../hooks/listMemory";
-import CardPlanner from "../components/CardPlanner";
 import { AskPanel } from "../components/Ask";
 import { MakeAskableButton, askState } from "../components/Askable";
 import { TranscriptView, useWorkPosition } from "../components/Listen";
 import TrackList, { queueFor } from "../components/TrackList";
 import { BitratePicker, DownsizeDialog, TranscribeDialog, usePresets } from "../components/Tools";
+import { SendToYotoButton } from "../components/SendToYoto";
 import { StarButton } from "../components/StarButton";
 import { Button, Cover, Empty, Modal, Note, Progress, Spinner, Tabs, errorText, useToast } from "../components/ui";
 import { bytes, clock, date, duration, relative, stripHtml } from "../format";
 import { useAction, useActiveJob } from "../hooks/queries";
+import { useFeatures } from "../hooks/session";
 import { usePlayer } from "../player";
 import type { BookDetail as BookDetailT, Job } from "../types";
 
@@ -47,7 +48,11 @@ export default function BookDetail() {
     if ((location.state as { askTab?: boolean } | null)?.askTab) navigate(-1);
     else setTab("chapters");
   };
-  const [dialog, setDialog] = useState<"convert" | "downsize" | "transcribe" | "yoto" | null>(null);
+  const [dialog, setDialog] = useState<"convert" | "downsize" | "transcribe" | null>(null);
+  const has = useFeatures();
+  // ?send=1 (coming back from connecting Yoto) reopens Send to Yoto.
+  const autoSend = params.get("send") === "1";
+  const listenHere = useAction(() => api.post<Job>(`/audible/books/${id}/convert`, {}), [["books"]]);
   const [openSummary, setOpenSummary] = useState(false);
   const refreshPosition = useAction(() => api.post(`/audible/books/${id}/position`), [["books", id]]);
   const removeAudio = useAction(() => api.del(`/audible/books/${id}/audio`), [["books"]]);
@@ -123,7 +128,7 @@ export default function BookDetail() {
               <div title={downsizedCount ? `${bytes(originalBytes)} before downsizing` : undefined}>
                 <b>{bytes(currentBytes)}</b>
                 {downsizedCount === 0
-                  ? "MP3 size"
+                  ? "Size"
                   : downsizedCount === withFiles.length
                     ? `Downsized from ${bytes(originalBytes)}`
                     : `${downsizedCount} of ${withFiles.length} downsized`}
@@ -155,31 +160,55 @@ export default function BookDetail() {
           </div>
 
           <div className="row wrap hero-actions">
-            {!ready && <MakeAskableButton book={b} variant="primary" onAsk={openAsk} />}
+            {has("yoto") && <SendToYotoButton book={b} autoOpen={autoSend} />}
+            <MakeAskableButton book={b} variant={has("yoto") ? "sage" : "primary"} onAsk={openAsk} />
             {ready ? (
-              <Button variant="primary" size="lg" icon={<Play size={18} fill="currentColor" />} onClick={() => player.play(queue, resumeIndex, b.position_ms - (queue[resumeIndex]?.workOffsetMs ?? 0))}>
-                {b.position_ms ? "Resume" : "Play"}
+              <Button size="lg" icon={<Play size={18} fill="currentColor" />} onClick={() => player.play(queue, resumeIndex, b.position_ms - (queue[resumeIndex]?.workOffsetMs ?? 0))}>
+                {b.position_ms ? "Resume here" : "Play here"}
               </Button>
             ) : (
-              <Button size="lg" icon={<Download size={18} />} onClick={() => setDialog("convert")} disabled={!!job}>
-                Convert to MP3
-              </Button>
-            )}
-            {ready && <MakeAskableButton book={b} onAsk={openAsk} />}
-            {ready && (
-              <>
-                <Button icon={<SquareStack size={16} />} onClick={() => setDialog("yoto")}>
-                  Make Yoto cards
+              has("listen") && (
+                <Button
+                  size="lg"
+                  icon={<Headphones size={18} />}
+                  disabled={!!job}
+                  loading={listenHere.isPending}
+                  onClick={() =>
+                    listenHere.mutate(undefined, {
+                      onSuccess: () => toast("Getting it ready to play here. This takes a few minutes."),
+                      onError: (e) => toast(errorText(e), "error"),
+                    })
+                  }
+                >
+                  Listen here
                 </Button>
-                <Button icon={<FileText size={16} />} onClick={() => setDialog("transcribe")}>
-                  Transcribe
-                </Button>
-                <Button icon={<Minimize2 size={16} />} onClick={() => setDialog("downsize")}>
-                  Downsize
-                </Button>
-              </>
+              )
             )}
             <StarButton kind="book" id={b.id} title={b.title} />
+            <details className="more-menu">
+              <summary className="btn ghost" aria-label="More options">
+                <MoreHorizontal size={18} /> More
+              </summary>
+              <div className="more-menu-list">
+                {ready ? (
+                  <>
+                    <button type="button" onClick={() => setDialog("transcribe")}>
+                      <FileText size={16} /> Transcribe
+                    </button>
+                    <button type="button" onClick={() => setDialog("downsize")}>
+                      <Minimize2 size={16} /> Make the files smaller
+                    </button>
+                    <button type="button" onClick={() => setDialog("convert")}>
+                      <Download size={16} /> Download again at another quality
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" disabled={!!job} onClick={() => setDialog("convert")}>
+                    <Download size={16} /> Download as MP3s
+                  </button>
+                )}
+              </div>
+            </details>
           </div>
 
           {job && <JobLine job={job} />}
@@ -215,7 +244,7 @@ export default function BookDetail() {
                 Converted at {b.convert_kbps} kbps {b.convert_mono ? "mono" : "stereo"}
               </span>
               <span className="spacer" />
-              <Button size="sm" variant="ghost" onClick={() => setDialog("convert")}>Re-convert</Button>
+
               <Button
                 size="sm"
                 variant="danger"
@@ -227,11 +256,12 @@ export default function BookDetail() {
             </div>
           </>
         ) : (
-          <Empty icon={<Download size={36} />} title="Not converted yet" action={<Button variant="primary" onClick={() => setDialog("convert")}>Convert to MP3</Button>}>
-            Download this book from Audible, remove the DRM for your own listening, and split it into one MP3 per chapter.
+          <Empty icon={<ListMusic size={36} />} title="Not downloaded yet">
+            The chapters show up here once the book is downloaded from Audible. <b>Send to Yoto</b>, <b>Make askable</b> and{" "}
+            <b>Listen here</b> each download it for you.
           </Empty>
         ))}
-      {tab === "transcript" && (ready ? <TranscriptView work={{ book_id: b.id }} queue={queue} positionMs={position} /> : <Empty title="Convert the book first" />)}
+      {tab === "transcript" && (ready ? <TranscriptView work={{ book_id: b.id }} queue={queue} positionMs={position} /> : <Empty title="No transcript yet">Tap Make askable and it's downloaded and transcribed for you.</Empty>)}
       {tab === "ask" &&
         (b.transcribed_count ? (
           <AskPanel
@@ -256,12 +286,9 @@ export default function BookDetail() {
           </Empty>
         ))}
 
-      {dialog === "convert" && <ConvertDialog bookId={b.id} title={b.title} onClose={() => setDialog(null)} onStarted={() => toast("Converting in the background — this takes a few minutes")} />}
+      {dialog === "convert" && <ConvertDialog bookId={b.id} title={b.title} onClose={() => setDialog(null)} onStarted={() => toast("Downloading in the background. This takes a few minutes.")} />}
       {dialog === "downsize" && <DownsizeDialog tracks={b.tracks} onClose={() => setDialog(null)} />}
       {dialog === "transcribe" && <TranscribeDialog tracks={b.tracks} onClose={() => setDialog(null)} />}
-      {dialog === "yoto" && (
-        <CardPlanner groups={[{ key: `book:${b.id}`, title: b.title, track_ids: b.tracks.map((t) => t.id) }]} coverUrl={b.cover_url} onClose={() => setDialog(null)} />
-      )}
     </>
   );
 }
@@ -292,7 +319,7 @@ function ConvertDialog({ bookId, title, onClose, onStarted }: { bookId: number; 
   const run = useAction(() => api.post<Job>(`/audible/books/${bookId}/convert`, { kbps: effective, mono: mono ?? presets.data?.default_mono }), [["books"]]);
   return (
     <Modal
-      title={`Convert “${title}”`}
+      title={`Download “${title}” as MP3s`}
       onClose={onClose}
       footer={
         <>
@@ -308,7 +335,7 @@ function ConvertDialog({ bookId, title, onClose, onStarted }: { bookId: number; 
               })
             }
           >
-            Convert
+            Download
           </Button>
         </>
       }

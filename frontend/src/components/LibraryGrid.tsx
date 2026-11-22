@@ -3,12 +3,14 @@ import { Check, CheckCircle2, Folder, Mic, SquareStack } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
-import { bytes, duration } from "../format";
+import { duration } from "../format";
 import { useUpdateParams } from "../hooks/listMemory";
+import { useFeatures } from "../hooks/session";
 import { useStars, type StarKind } from "../hooks/stars";
 import { usePlayer } from "../player";
 import type { Book, Collection, Playlist, Podcast } from "../types";
 import { CardAskFooter } from "./Askable";
+import { CardYotoFooter } from "./SendToYoto";
 import { StarButton } from "./StarButton";
 import { Button, Cover, Meter, Progress, SourceIcon, Spinner } from "./ui";
 
@@ -31,8 +33,8 @@ export interface LibraryItem {
   sortDate: string;
   /** When the signed-in user starred it; undefined when they haven't. */
   starredAt?: string;
-  /** Books only: what the Ask footer needs. */
-  book?: Pick<Book, "id" | "track_count" | "transcribed_count">;
+  /** Books only: what the Ask and Yoto buttons need. */
+  book?: Book;
 }
 
 /** Every book, podcast and folder as one list of cards, with the signed-in user's stars. */
@@ -71,7 +73,7 @@ export function useLibraryItems() {
         inProgress: b.percent_complete > 0 && !b.is_finished,
         finished: b.is_finished,
         sortDate: b.purchase_date ?? "",
-        book: { id: b.id, track_count: b.track_count, transcribed_count: b.transcribed_count },
+        book: b,
       });
     for (const p of podcasts.data ?? [])
       out.push({
@@ -118,6 +120,26 @@ export function useLibraryItems() {
   };
 }
 
+/** Under each cover: the things you can do with it, as outcomes (Send to Yoto, Ask), for the features you use. */
+function CardActions({ item }: { item: LibraryItem }) {
+  const has = useFeatures();
+  const yoto = has("yoto");
+  const ask = has("ask") && !!item.book;
+  if (!yoto && !ask) return null;
+  const source =
+    item.kind === "book" && item.book
+      ? ({ kind: "book", book: item.book } as const)
+      : item.kind === "podcast"
+        ? ({ kind: "podcast", id: item.id, title: item.title, cover: item.cover } as const)
+        : ({ kind: "folder", id: item.id, title: item.title } as const);
+  return (
+    <div className="card-actions">
+      {yoto && <CardYotoFooter source={source} book={item.book} />}
+      {ask && <CardAskFooter book={item.book!} />}
+    </div>
+  );
+}
+
 export function CoverGrid({ items }: { items: LibraryItem[] }) {
   return (
     <div className="cover-grid">
@@ -140,9 +162,9 @@ export function CoverGrid({ items }: { items: LibraryItem[] }) {
                 <Cover src={item.cover} title={item.title} />
               )}
               <StarButton kind={item.kind} id={item.id} title={item.title} overlay />
-              {item.ready && (
-                <span className="pill solid" style={{ position: "absolute", top: 8, right: 8 }}>
-                  <CheckCircle2 size={12} /> MP3
+              {item.book?.yoto_status === "synced" && (
+                <span className="pill solid" style={{ position: "absolute", top: 8, right: 8 }} title="On your Yoto">
+                  <CheckCircle2 size={12} /> On Yoto
                 </span>
               )}
             </div>
@@ -168,7 +190,7 @@ export function CoverGrid({ items }: { items: LibraryItem[] }) {
               </div>
             )}
           </Link>
-          {item.book && <CardAskFooter book={item.book} />}
+          <CardActions item={item} />
         </div>
       ))}
     </div>
@@ -229,12 +251,14 @@ export function ContinueListening() {
 }
 
 export function YotoRail({ playlists, loading }: { playlists: Playlist[]; loading: boolean }) {
+  const has = useFeatures();
+  if (!has("yoto")) return null;
   const recent = playlists.slice(0, 3);
   const limit = 500 * 1024 * 1024;
   return (
     <div className="panel">
       <div className="panel-head">
-        <h3>Ready for little ears</h3>
+        <h3>Your Yoto cards</h3>
         <SquareStack size={20} color="var(--terracotta)" />
       </div>
       {loading ? (
@@ -256,20 +280,20 @@ export function YotoRail({ playlists, loading }: { playlists: Playlist[]; loadin
                   {p.title}
                 </div>
                 <div className="muted tabular" style={{ fontSize: "var(--text-xs)", margin: "2px 0 6px" }}>
-                  {duration(p.total_duration_ms)} · {bytes(p.total_bytes)} · {p.status === "synced" ? "on Yoto" : p.status}
+                  {Math.round((p.total_bytes / limit) * 100)}% of a card · {p.status === "synced" ? "on Yoto" : "not sent yet"}
                 </div>
-                <Meter value={Math.max(p.total_bytes / limit, p.total_duration_ms / (5 * 3600 * 1000))} />
+                <Meter value={p.total_bytes / limit} />
               </div>
             </Link>
           ))}
         </div>
       ) : (
         <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
-          Turn any book, podcast or folder into Yoto cards — packed to fit as much as possible on each one.
+          Tap <b>Send to Yoto</b> under any book, podcast or folder, and it's packed onto as few cards as possible.
         </p>
       )}
       <Link to="/yoto" className="btn sage" style={{ width: "100%", marginTop: 16 }}>
-        <SquareStack size={17} /> Plan Yoto cards
+        <SquareStack size={17} /> {recent.length ? "All my Yoto cards" : "How Yoto cards work"}
       </Link>
     </div>
   );

@@ -3,7 +3,7 @@ import { Download, FolderInput, KeyRound, Link2, Mic, MonitorSmartphone, Plus, R
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
-import { PACK_STRATEGIES } from "../components/CardPlanner";
+import { PACK_STRATEGIES } from "../components/SendToYoto";
 import { OpenRouterConnect } from "../components/AiSetup";
 import { AudibleSignInSteps } from "../components/AudibleConnect";
 import { PeopleSection } from "../components/People";
@@ -17,7 +17,7 @@ import { PROVIDER_USES } from "../providers";
 import { clearUserCaches, isIos, promptInstall, requestPersistence, storageInfo, usePwa } from "../pwa";
 import { featureSet, useMe, useOnboarding } from "../hooks/session";
 import { FEATURES, SOURCES, type AudibleAccount, type Feature, type SecretValue, type SettingsData, type YotoAccount } from "../types";
-import { useConnectYoto } from "./Yoto";
+import { useConnectYoto } from "../components/SendToYoto";
 
 export default function Settings() {
   const location = useLocation();
@@ -28,7 +28,7 @@ export default function Settings() {
   if (settings.isLoading || !settings.data) return <Spinner />;
   return (
     <>
-      <PageHead eyebrow="Settings" title="Sources & preferences" lede="Accounts, keys, and how audio gets sized for Yoto." />
+      <PageHead eyebrow="Settings" title="Accounts & preferences" lede="Where your audio comes from, your Yoto and AI connections, and audio sizes." />
       <div className="stack" style={{ "--gap": "22px" } as React.CSSProperties}>
         <SetupSection />
         <AudibleSection />
@@ -268,7 +268,7 @@ function YotoSection({ data }: { data: SettingsData }) {
         <SquareStack size={20} />
         <h3>Yoto</h3>
         {ready && (
-          <Button size="sm" variant={connected.length ? undefined : "primary"} icon={<Link2 size={15} />} onClick={connect}>
+          <Button size="sm" variant={connected.length ? undefined : "primary"} icon={<Link2 size={15} />} onClick={() => void connect("/settings")}>
             {connected.length ? "Connect another" : "Connect your Yoto account"}
           </Button>
         )}
@@ -520,10 +520,9 @@ function PreferencesSection({ data }: { data: SettingsData }) {
   const [kbps, setKbps] = useState<number | null>(prefs.default_kbps);
   const [mono, setMono] = useState(prefs.default_mono);
   const [mb, setMb] = useState(prefs.card_limit_mb);
-  const [hours, setHours] = useState(prefs.card_limit_hours);
   const [strategy, setStrategy] = useState(prefs.pack_strategy);
   const save = useAction(
-    () => api.put("/settings", { service: "preferences", values: { default_kbps: kbps, default_mono: mono, card_limit_mb: mb, card_limit_hours: hours, pack_strategy: strategy } }),
+    () => api.put("/settings", { service: "preferences", values: { default_kbps: kbps, default_mono: mono, card_limit_mb: mb, card_limit_hours: 0, pack_strategy: strategy } }),
     [["settings"], ["presets"]],
   );
   return (
@@ -537,20 +536,13 @@ function PreferencesSection({ data }: { data: SettingsData }) {
           <strong>Default MP3 quality for conversions and downsizing</strong>
           <BitratePicker kbps={kbps} mono={mono} onChange={(k, m) => (setKbps(k), setMono(m))} />
         </div>
-        <div className="grid-2">
-          <label className="field">
-            <span>Card size limit (MB)</span>
-            <input className="input" type="number" min={50} max={2000} value={mb} onChange={(e) => setMb(Number(e.target.value))} />
-            <small>Yoto documents 500 MB per Make-Your-Own card.</small>
-          </label>
-          <label className="field">
-            <span>Card length limit (hours)</span>
-            <input className="input" type="number" min={0} max={24} step={0.5} value={hours} onChange={(e) => setHours(Number(e.target.value))} />
-            <small>0 means no length limit. Yoto's docs say 5 hours, but in practice only size is enforced.</small>
-          </label>
-        </div>
+        <label className="field" style={{ maxWidth: 320 }}>
+          <span>Card size (MB)</span>
+          <input className="input" type="number" min={50} max={2000} value={mb} onChange={(e) => setMb(Number(e.target.value))} />
+          <small>A Make Your Own card holds 500 MB.</small>
+        </label>
         <div className="field">
-          <span>Default packing</span>
+          <span>When you put several books or shows on cards together</span>
           <div className="segmented" style={{ alignSelf: "flex-start" }}>
             {PACK_STRATEGIES.map((s) => (
               <button key={s.id} className={strategy === s.id ? "active" : ""} onClick={() => setStrategy(s.id)}>
@@ -558,7 +550,7 @@ function PreferencesSection({ data }: { data: SettingsData }) {
               </button>
             ))}
           </div>
-          <small>{PACK_STRATEGIES.find((s) => s.id === strategy)?.hint} With several sources picked, cards default to back to back.</small>
+          <small>{PACK_STRATEGIES.find((s) => s.id === strategy)?.hint}</small>
         </div>
         <div className="row">
           <span className="spacer" />

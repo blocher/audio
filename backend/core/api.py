@@ -370,7 +370,9 @@ def build_groups(groups: list[dict], kbps: int | None, use_optimized: bool) -> l
 def pack_limits(payload: PackIn) -> packing.Limits:
     prefs = preferences()
     max_mb = payload.max_mb or int(prefs["card_limit_mb"])
-    hours = payload.max_hours if payload.max_hours is not None else float(prefs["card_limit_hours"] or 0)
+    # A card is 500 MB. Yoto's docs mention 5 hours, but it accepts far longer cards, so length is only checked when a
+    # caller asks for it; the old "card length limit" preference no longer applies.
+    hours = payload.max_hours or 0
     return packing.Limits(
         max_bytes=max_mb * 1024 * 1024,
         max_tracks=payload.max_tracks,
@@ -410,6 +412,55 @@ def card_summary(card: packing.Card, limits: packing.Limits) -> dict:
         "fill": max(fill_bytes, fill_time),
         "bound_by": "time" if fill_time > fill_bytes else "size",
     }
+
+
+class OptionsIn(PackIn):
+    # An Audible book that isn't downloaded yet has no tracks: plan from its length alone.
+    estimate_ms: int = 0
+
+
+def _estimate_groups(duration_ms: int, kbps: int) -> list[packing.Group]:
+    part = 30 * 60 * 1000
+    count = max(1, -(-duration_ms // part))
+    length = duration_ms // count
+    items = [packing.Item(0, f"Part {n + 1}", audio.estimate_bytes(length, kbps), length) for n in range(count)]
+    return [packing.Group("estimate", "Book", items)]
+
+
+@router.post("/pack/options")
+def pack_options(request, payload: OptionsIn):
+    """How many cards each audio size needs: "as is" (the files as they are now) and every downsizing preset."""
+    limits = pack_limits(payload)
+    current_kbps = None
+    choices: list[int | None] = [p["kbps"] for p in audio.BITRATE_PRESETS]
+    if not payload.estimate_ms:
+        base = build_groups(payload.groups, None, payload.use_optimized)
+        total_bytes = sum(i.bytes for g in base for i in g.items)
+        total_ms = sum(i.duration_ms for g in base for i in g.items)
+        if total_ms:
+            current_kbps = round(total_bytes * 8 / (total_ms / 1000) / 1000 / 1.01)
+        # Re-encoding at a higher bitrate than the files already have only makes them bigger.
+        choices = [None] + [k for k in choices if current_kbps is None or k < current_kbps * 0.9]
+    out = []
+    for kbps in choices:
+        if payload.estimate_ms:
+            groups = _estimate_groups(payload.estimate_ms, kbps or audio.DEFAULT_KBPS)
+        else:
+            groups = build_groups(payload.groups, kbps, payload.use_optimized)
+        try:
+            cards = packing.pack(groups, limits, payload.strategy)
+        except packing.TrackTooLarge:
+            out.append({"kbps": kbps, "cards": None, "bytes": 0, "last_fill": 0})
+            continue
+        out.append(
+            {
+                "kbps": kbps,
+                "cards": len(cards),
+                "bytes": sum(c.bytes for c in cards),
+                "last_fill": cards[-1].bytes / limits.max_bytes if cards else 0,
+            }
+        )
+    return {"options": out, "current_kbps": current_kbps, "card_bytes": limits.max_bytes}
 
 
 @router.post("/pack/preview")

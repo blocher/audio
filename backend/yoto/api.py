@@ -17,7 +17,7 @@ from core.tenancy import household_id
 
 from . import client, services
 from .models import Playlist, PlaylistItem, YotoAccount
-from .tasks import sync_playlists_task
+from .tasks import send_to_yoto_task, sync_playlists_task
 
 router = Router(tags=["yoto"])
 
@@ -75,7 +75,7 @@ def _back_to_yoto(return_to: str = "", popup: bool = False, **params) -> HttpRes
         return finished_page("yoto", True, return_to or "/yoto", **params)
     page = return_to or "/yoto"
     joiner = "&" if "?" in page else "?"
-    return HttpResponseRedirect(f"{page}{joiner}{urlencode(params)}")
+    return HttpResponseRedirect(f"{page}{joiner}{urlencode({**params, 'service': 'yoto'})}")
 
 
 @router.get("/callback")
@@ -414,6 +414,75 @@ def sync(request, payload: SyncIn):
         return job
     title = f"Sync “{playlists[0].title}” to Yoto" if target else f"Sync {len(playlists)} cards to Yoto"
     return enqueue("yoto_sync", title, sync_playlists_task, [p.pk for p in playlists], target=target)
+
+
+class SendIn(Schema):
+    groups: list[dict] = []  # tracks already here: [{"key", "title", "track_ids"}]
+    book_id: int | None = None  # or an Audible book, converted first if it isn't yet
+    strategy: str = "sequential"
+    kbps: int | None = None  # downsize (or, for a book not converted yet, convert) to this bitrate; None = as is
+    mono: bool | None = None
+    name: str = ""
+    cover_url: str = ""
+    # Chosen by the browser, so "Try again" after a failure carries on with the same cards instead of making more.
+    batch: str = ""
+
+
+@router.post("/send", response=JobOut)
+def send(request, payload: SendIn):
+    """Make the cards and put them on Yoto in one go, as a single background job."""
+    import re
+    import uuid
+
+    from audible_books.models import Book
+    from audible_books.services import download_account
+    from core.api import preferences
+
+    hid = household_id(request)
+    if not YotoAccount.objects.filter(household_id=hid).exclude(encrypted_tokens="").exists():
+        raise HttpError(400, "Connect your Yoto account first")
+    prefs = preferences()
+    mono = payload.mono if payload.mono is not None else bool(prefs["default_mono"])
+    kbps, convert_kbps, target, groups = payload.kbps, None, None, payload.groups
+    strategy = payload.strategy if payload.strategy in ("continuous", "sequential", "compact") else "sequential"
+    if payload.book_id is not None:
+        book = get_object_or_404(Book.objects.select_related("account"), pk=payload.book_id, household_id=hid)
+        target = book
+        if job := active_job(book, "yoto_send"):
+            return job
+        if active_job(book, "audible_convert") or active_job(book, "audible_askable"):
+            raise HttpError(409, "This book is still being downloaded. Try again once that's finished.")
+        if not book.tracks.exclude(file="").exists():
+            if download_account(book) is None:
+                raise HttpError(400, f"{book.account.name}'s Audible account needs signing in again")
+            convert_kbps, kbps = payload.kbps or int(prefs["default_kbps"]), None
+        title, strategy = book.title, "sequential"
+    else:
+        if not any(g.get("track_ids") for g in groups):
+            raise HttpError(400, "Pick something to put on the cards")
+        title = payload.name.strip() or (groups[0].get("title") if len(groups) == 1 else f"{len(groups)} picks")
+    if convert_kbps is None:
+        # Check it fits before queueing, so a track that's too big shows up here rather than minutes later.
+        probe = groups
+        if payload.book_id is not None:
+            ids = list(target.tracks.exclude(file="").values_list("pk", flat=True))
+            probe = [{"key": "book", "title": title, "track_ids": ids}]
+        run_pack(PackIn(groups=probe, strategy=strategy, kbps=kbps, use_optimized=True))
+    return enqueue(
+        "yoto_send",
+        f"Send “{title}” to Yoto",
+        send_to_yoto_task,
+        groups,
+        strategy,
+        kbps,
+        mono,
+        payload.name,
+        payload.cover_url,
+        payload.batch if re.fullmatch(r"[0-9a-f]{8,32}", payload.batch) else uuid.uuid4().hex[:12],
+        payload.book_id,
+        convert_kbps,
+        target=target,
+    )
 
 
 @router.get("/limits")

@@ -1,57 +1,70 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { connectInPopup } from "../connect";
-import { BookOpen, CheckCircle2, CloudUpload, Folder, Library, Link2, Mic, Plus, Search, SquareStack } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { BookOpen, CheckCircle2, Folder, Layers, Library, LibraryBig, Link2, Mic, Search, SquareStack } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
-import CardPlanner from "../components/CardPlanner";
+import SendToYoto, { SendProgressModal, useConnectYoto } from "../components/SendToYoto";
 import { Button, Empty, Meter, Modal, Note, PageHead, Spinner, errorText, useToast } from "../components/ui";
-import { bytes, duration, mb, relative } from "../format";
-import { useAction, useJobs } from "../hooks/queries";
+import { duration, mb, relative } from "../format";
+import { useJobs } from "../hooks/queries";
 import { useMe } from "../hooks/session";
 import type { Book, Collection, Job, PackGroup, Playlist, Podcast, PodcastDetail, SettingsData, Track, YotoAccount } from "../types";
 import { seasonGroups, seasonKey, seasonLabel } from "../seasons";
 import { JobLine } from "./BookDetail";
 
 const CARD_BYTES = 500 * 1024 * 1024;
-const CARD_MS = 5 * 3600 * 1000;
 
 export function statusPill(status: Playlist["status"]) {
   const map = {
-    draft: ["", "Draft"],
-    syncing: ["honey", "Syncing…"],
+    draft: ["", "Not sent yet"],
+    syncing: ["honey", "Sending…"],
     synced: ["sage", "On Yoto"],
-    changed: ["honey", "Changed since sync"],
-    failed: ["berry", "Sync failed"],
+    changed: ["honey", "Changed; send again"],
+    failed: ["berry", "Didn't send"],
   } as const;
   const [tone, label] = map[status];
   return <span className={`pill ${tone}`}>{status === "synced" && <CheckCircle2 size={11} />} {label}</span>;
 }
 
-/** Sign in to Yoto in a popup window; the app stays where it is and refreshes when it's done. */
-export function useConnectYoto() {
-  const toast = useToast();
-  const qc = useQueryClient();
-  return async () => {
-    try {
-      const { authorize_url } = await api.post<{ authorize_url: string }>("/yoto/accounts", {
-        name: "Family",
-        popup: true,
-        return_to: window.location.pathname,
-      });
-      const result = await connectInPopup(authorize_url, "yoto");
-      for (const key of ["yoto-accounts", "onboarding", "playlists"]) qc.invalidateQueries({ queryKey: [key] });
-      if (result.error) toast(`Yoto sign-in didn't finish: ${result.error}`, "error");
-      else toast("Yoto account connected");
-    } catch (e) {
-      if (e instanceof Error && e.message === "closed") return; // they closed the window
-      toast(errorText(e), "error");
-    }
-  };
+/** How to make a card, in three steps, with the way in. */
+function HowTo({ onSeveral }: { onSeveral: () => void }) {
+  return (
+    <section className="panel howto">
+      <h3>How to make a Yoto card</h3>
+      <ol className="howto-steps">
+        <li>
+          <span className="howto-n">1</span>
+          <span>
+            Go to your <b>Library</b> and pick a book
+          </span>
+        </li>
+        <li>
+          <span className="howto-n">2</span>
+          <span>
+            Tap <b>Send to Yoto</b>
+          </span>
+        </li>
+        <li>
+          <span className="howto-n">3</span>
+          <span>
+            In the <b>Yoto app</b>, open Library and link it to a blank card
+          </span>
+        </li>
+      </ol>
+      <div className="row wrap" style={{ gap: 10, marginTop: 14 }}>
+        <Link className="btn primary" to="/library">
+          <LibraryBig size={17} /> Go to Library
+        </Link>
+        <Button variant="ghost" icon={<Layers size={16} />} onClick={onSeveral}>
+          Put several books or shows on cards together
+        </Button>
+      </div>
+    </section>
+  );
 }
 
 export default function Yoto() {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const toast = useToast();
   const connect = useConnectYoto();
   const isAdmin = !!useMe()?.is_admin;
@@ -59,23 +72,11 @@ export default function Yoto() {
   const playlists = useQuery({ queryKey: ["playlists"], queryFn: () => api.get<Playlist[]>("/yoto/playlists") });
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<SettingsData>("/settings") });
   const jobs = useJobs();
-  // ?new=1 (from the welcome wizard) opens straight on "pick what goes on the cards".
+  // ?new=1 opens straight on "pick several to put on cards".
   const [picking, setPicking] = useState(params.get("new") === "1");
-  const [connectError, setConnectError] = useState(params.get("error") ?? "");
   const [planGroups, setPlanGroups] = useState<PackGroup[] | null>(null);
-  const sync = useAction((body: { batch?: string; playlist_ids?: number[] }) => api.post<Job>("/yoto/sync", body), [["playlists"]]);
-
-  useEffect(() => {
-    if (params.get("connected")) toast("Yoto account connected");
-    if (params.get("error")) setConnectError(params.get("error")!);
-    if (params.get("connected") || params.get("error") || params.get("new")) {
-      const next = new URLSearchParams(params);
-      next.delete("connected");
-      next.delete("error");
-      next.delete("new");
-      setParams(next, { replace: true });
-    }
-  }, [params, setParams, toast]);
+  const [following, setFollowing] = useState<{ id: number; title: string } | null>(null);
+  const [sendingKey, setSendingKey] = useState("");
 
   const connected = (accounts.data ?? []).some((a) => a.connected);
   const highlight = params.get("batch");
@@ -89,30 +90,36 @@ export default function Yoto() {
     list.sort((a, b) => (a.key === highlight ? -1 : b.key === highlight ? 1 : 0));
     return list;
   }, [playlists.data, highlight]);
-  const syncJobs = (jobs.data ?? []).filter((j) => j.kind === "yoto_sync" && (j.status === "running" || j.status === "queued"));
+  const sendJobs = (jobs.data ?? []).filter(
+    (j) => (j.kind === "yoto_sync" || j.kind === "yoto_send") && (j.status === "running" || j.status === "queued"),
+  );
   const hasYotoApp = !!settings.data?.capabilities.yoto_ready;
+  const anyOnYoto = (playlists.data ?? []).some((p) => p.status === "synced");
+
+  async function send(key: string, items: Playlist[], title: string) {
+    setSendingKey(key);
+    try {
+      const body = key.startsWith("single-") ? { playlist_ids: items.map((p) => p.id) } : { batch: key };
+      const job = await api.post<Job>("/yoto/sync", body);
+      jobs.refetch();
+      setFollowing({ id: job.id, title });
+    } catch (e) {
+      toast(errorText(e), "error");
+    } finally {
+      setSendingKey("");
+    }
+  }
 
   return (
     <>
       <PageHead
         eyebrow="Yoto"
-        title="Ready for little ears"
-        lede="Pack books, podcasts and folders onto as few cards as possible, then send them to your Yoto account."
-        actions={
-          <Button variant="primary" icon={<Plus size={18} />} onClick={() => setPicking(true)}>
-            Plan new cards
-          </Button>
-        }
+        title="Your Yoto cards"
+        lede="Books, podcasts and folders you've sent to your Yoto app, packed onto as few 500 MB cards as possible."
       />
 
-      {connectError && !connected && (
-        <div style={{ marginBottom: 16 }}>
-          <Note tone="error">Yoto sign-in didn't finish: {connectError}</Note>
-        </div>
-      )}
-
       {!accounts.isLoading && !connected && (
-        <div className="panel" style={{ marginBottom: 22, display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="panel" style={{ marginBottom: 18, display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
           <div className="card-art" style={{ width: 54 }}>
             <SquareStack size={20} />
           </div>
@@ -120,83 +127,92 @@ export default function Yoto() {
             <h3 style={{ marginBottom: 4 }}>Connect your Yoto account</h3>
             <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
               {hasYotoApp
-                ? "You'll sign in on Yoto's site and come straight back. You can still make cards first and send them later."
+                ? "So cards go straight to your Yoto app. You'll sign in on Yoto's site and come right back here."
                 : isAdmin
                   ? "First add the site's Yoto app in Settings (from dashboard.yoto.dev); then everyone can connect with one button."
                   : "Yoto isn't switched on for this site yet. Ask a super admin to set it up."}
             </p>
           </div>
           {hasYotoApp ? (
-            <Button variant="sage" icon={<Link2 size={16} />} onClick={connect}>Connect Yoto</Button>
+            <Button variant="primary" icon={<Link2 size={16} />} onClick={() => void connect("/yoto")}>
+              Connect Yoto
+            </Button>
           ) : (
             isAdmin && <Link className="btn" to="/settings#yoto">Open Settings</Link>
           )}
         </div>
       )}
 
-      {syncJobs.map((j) => (
+      <HowTo onSeveral={() => setPicking(true)} />
+
+      {sendJobs.map((j) => (
         <JobLine key={j.id} job={j} />
       ))}
 
+      {anyOnYoto && (
+        <Note tone="ok">
+          <b>Cards on Yoto are waiting in the Yoto app.</b> Open the Yoto app, tap Library, find the playlist, and link it to a blank card.
+        </Note>
+      )}
+
       {playlists.isLoading ? (
         <Spinner />
-      ) : batches.length ? (
-        <div className="stack" style={{ "--gap": "26px", marginTop: 18 } as React.CSSProperties}>
-          {batches.map(({ key, items }) => {
-            const unsynced = items.filter((p) => p.status !== "synced").length;
-            return (
-              <section key={key} className={key === highlight ? "panel" : undefined}>
-                <div className="row" style={{ marginBottom: 12 }}>
-                  <h3 style={{ flex: 1 }}>
-                    {items.length > 1 ? `${items[0].title.replace(/ \(\d+ of \d+\)$/, "")} · ${items.length} cards` : items[0].title}
-                  </h3>
-                  {items.length > 1 && (
-                    <Button
-                      variant={unsynced ? "sage" : undefined}
-                      size="sm"
-                      icon={<CloudUpload size={15} />}
-                      disabled={!connected}
-                      loading={sync.isPending}
-                      onClick={() =>
-                        sync.mutate(key.startsWith("single-") ? { playlist_ids: items.map((p) => p.id) } : { batch: key }, {
-                          onSuccess: () => toast(`Syncing ${items.length} cards to Yoto`),
-                          onError: (e) => toast(errorText(e), "error"),
-                        })
-                      }
-                    >
-                      {unsynced ? `Sync ${items.length} cards` : "Re-sync all"}
-                    </Button>
-                  )}
-                </div>
-                <div className="plan-grid">
-                  {items.map((p, n) => (
-                    <Link key={p.id} to={`/yoto/playlists/${p.id}`} className="yoto-card">
-                      <div className="card-art">
-                        {p.cover_url ? <img src={p.cover_url} alt="" /> : <SquareStack size={22} />}
-                        {items.length > 1 && <span className="n">{n + 1}</span>}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div className="truncate" style={{ fontWeight: 650 }}>{p.title}</div>
-                        <div className="muted tabular" style={{ fontSize: "var(--text-xs)", margin: "2px 0 8px" }}>
-                          {p.item_count} tracks · {duration(p.total_duration_ms)} · {bytes(p.total_bytes)}
-                        </div>
-                        <Meter value={Math.max(p.total_bytes / CARD_BYTES, p.total_duration_ms / CARD_MS)} />
-                        <div className="row" style={{ marginTop: 8, "--gap": "6px" } as React.CSSProperties}>
-                          {statusPill(p.status)}
-                          {p.last_synced_at && <span className="muted" style={{ fontSize: "var(--text-xs)" }}>{relative(p.last_synced_at)}</span>}
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
       ) : (
-        <Empty icon={<SquareStack size={40} />} title="No cards yet" action={<Button variant="primary" onClick={() => setPicking(true)}>Plan your first cards</Button>}>
-          Choose a book, a podcast or a folder and we'll work out the fewest cards it fits on.
-        </Empty>
+        batches.length > 0 && (
+          <div className="stack" style={{ "--gap": "26px", marginTop: 22 } as React.CSSProperties}>
+            {batches.map(({ key, items }) => {
+              const unsent = items.filter((p) => p.status !== "synced").length;
+              const title = items.length > 1 ? items[0].title.replace(/ \(\d+ of \d+\)$/, "") : items[0].title;
+              return (
+                <section key={key} className={key === highlight ? "panel" : undefined}>
+                  <div className="row wrap" style={{ marginBottom: 12 }}>
+                    <h3 style={{ flex: 1 }}>
+                      {title}
+                      {items.length > 1 && <span className="muted"> · {items.length} cards</span>}
+                    </h3>
+                    {unsent > 0 ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon={<SquareStack size={15} />}
+                        disabled={!connected}
+                        loading={sendingKey === key}
+                        onClick={() => void send(key, items, title)}
+                      >
+                        {items.some((p) => p.card_id) ? "Resend to Yoto" : "Send to Yoto"}
+                      </Button>
+                    ) : (
+                      <span className="pill sage">
+                        <CheckCircle2 size={11} /> On Yoto
+                      </span>
+                    )}
+                  </div>
+                  <div className="plan-grid">
+                    {items.map((p, n) => (
+                      <Link key={p.id} to={`/yoto/playlists/${p.id}`} className="yoto-card">
+                        <div className="card-art">
+                          {p.cover_url ? <img src={p.cover_url} alt="" /> : <SquareStack size={22} />}
+                          {items.length > 1 && <span className="n">{n + 1}</span>}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="truncate" style={{ fontWeight: 650 }}>{p.title}</div>
+                          <div className="muted tabular" style={{ fontSize: "var(--text-xs)", margin: "2px 0 8px" }}>
+                            {p.item_count} tracks · {duration(p.total_duration_ms)} · {Math.round((p.total_bytes / CARD_BYTES) * 100)}% full
+                          </div>
+                          <Meter value={p.total_bytes / CARD_BYTES} />
+                          <div className="row" style={{ marginTop: 8, "--gap": "6px" } as React.CSSProperties}>
+                            {statusPill(p.status)}
+                            {p.last_synced_at && <span className="muted" style={{ fontSize: "var(--text-xs)" }}>{relative(p.last_synced_at)}</span>}
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )
       )}
 
       {picking && (
@@ -208,7 +224,8 @@ export default function Yoto() {
           }}
         />
       )}
-      {planGroups && <CardPlanner groups={planGroups} onClose={() => setPlanGroups(null)} />}
+      {planGroups && <SendToYoto source={{ kind: "groups", groups: planGroups }} returnTo="/yoto" onClose={() => setPlanGroups(null)} />}
+      {following && <SendProgressModal jobId={following.id} title={following.title} onClose={() => setFollowing(null)} />}
     </>
   );
 }
@@ -353,12 +370,12 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
   const chosenBytes = [...chosen].reduce((a, k) => a + (sizeOf.get(k) ?? 0), 0);
   const chosenMs = [...chosen].reduce((a, k) => a + (lengthOf.get(k) ?? 0), 0);
   const tooBig = !!addTo && chosenBytes > addTo.freeBytes;
-  const count = `${chosen.size || ""} source${chosen.size === 1 ? "" : "s"}`;
+  const count = `${chosen.size} picked`;
 
   return (
     <Modal
       wide
-      title={addTo ? `Add to “${addTo.title}”` : "What should go on the cards?"}
+      title={addTo ? `Add to “${addTo.title}”` : "Pick what to put on Yoto cards"}
       onClose={onClose}
       footer={
         <>
@@ -376,7 +393,7 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
           </span>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="primary" disabled={!chosen.size} loading={busy} onClick={build}>
-            {addTo ? `Add ${count}` : `Plan ${count}`}
+            {addTo ? `Add (${count})` : chosen.size ? `Next (${count})` : "Next"}
           </Button>
         </>
       }
@@ -384,13 +401,13 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
       {loading ? (
         <Spinner />
       ) : nothingReady ? (
-        <Empty title="Nothing ready yet">Convert a book, download some episodes, or import a folder first.</Empty>
+        <Empty title="Nothing downloaded yet">Go to your Library and tap Send to Yoto on a book; it's downloaded for you.</Empty>
       ) : (
         <div className="stack" style={{ "--gap": "18px" } as React.CSSProperties}>
           <p className="muted">
             {addTo
               ? "Only audio that's already converted or downloaded can go on a card. What you pick goes on the end of this card, in the order shown; you can rearrange it afterwards."
-              : "Only audio that's already converted or downloaded can go on a card. Pick several (a whole series, or a few seasons of a show) and they'll play back to back on as few cards as possible."}
+              : "Tick a whole series, or a few seasons of a show, and they'll play back to back on as few cards as possible. Only books and episodes that are already downloaded show here; for anything else, tap Send to Yoto on it in your Library."}
           </p>
           <div className="search">
             <Search size={17} />
@@ -482,7 +499,7 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
           )}
           {readyFolders.length > 0 && (
             <div className="stack">
-              <strong>Local folders</strong>
+              <strong>My own files</strong>
               <div className="list">
                 {readyFolders.map((c) => row(`folder:${c.id}`, <Folder size={16} />, c.name, `${c.track_count} files · ${duration(c.total_duration_ms)} · ${mb(c.current_bytes)}`))}
               </div>

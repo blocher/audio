@@ -80,6 +80,9 @@ class BookOut(Schema):
     track_count: int = 0
     transcribed_count: int = 0
     size_bytes: int = 0  # the chapters at their current size: downsized where done, original otherwise
+    # The Yoto cards made from this book: "" (none), draft, syncing, synced, changed or failed.
+    yoto_status: str = ""
+    yoto_playlist_ids: list[int] = []
 
     @staticmethod
     def resolve_account_ids(obj: Book) -> list[int]:
@@ -106,11 +109,15 @@ class BookDetailOut(BookOut):
 
 def accounts_qs(user):
     mine = services.my_account_id(user)
-    return AudibleAccount.objects.filter(household_id=membership(user).household_id).annotate(
-        book_count=Count("entries"),
-        ready_count=Count("entries", filter=Q(entries__book__status=Book.Status.READY)),
-        is_mine=Case(When(pk=mine, then=Value(True)), default=Value(False), output_field=BooleanField()),
-    ).order_by("name", "pk")
+    return (
+        AudibleAccount.objects.filter(household_id=membership(user).household_id)
+        .annotate(
+            book_count=Count("entries"),
+            ready_count=Count("entries", filter=Q(entries__book__status=Book.Status.READY)),
+            is_mine=Case(When(pk=mine, then=Value(True)), default=Value(False), output_field=BooleanField()),
+        )
+        .order_by("name", "pk")
+    )
 
 
 @router.get("/locales")
@@ -235,6 +242,40 @@ def books_qs(user):
     )
 
 
+def with_yoto(books):
+    """Attach each book's Yoto cards (one query for the whole list)."""
+    from yoto.models import Playlist, PlaylistItem
+
+    books = list(books)
+    rows = (
+        PlaylistItem.objects.filter(track__book_id__in=[b.pk for b in books])
+        .values_list("track__book_id", "playlist_id", "playlist__status")
+        .distinct()
+    )
+    found: dict[int, dict[int, str]] = {}
+    for book_id, playlist_id, status in rows:
+        found.setdefault(book_id, {})[playlist_id] = status
+    for book in books:
+        cards = found.get(book.pk, {})
+        statuses = set(cards.values())
+        book.yoto_playlist_ids = sorted(cards)
+        S = Playlist.Status
+        book.yoto_status = (
+            ""
+            if not cards
+            else S.SYNCING
+            if S.SYNCING in statuses
+            else S.FAILED
+            if S.FAILED in statuses
+            else S.SYNCED
+            if statuses == {S.SYNCED}
+            else S.CHANGED
+            if statuses & {S.SYNCED, S.CHANGED}
+            else S.DRAFT
+        )
+    return books
+
+
 @router.get("/books", response=list[BookOut])
 def list_books(
     request,
@@ -273,12 +314,12 @@ def list_books(
     }
     if sort in allowed:
         qs = qs.order_by(sort, "title")
-    return qs
+    return with_yoto(qs)
 
 
 @router.get("/books/{book_id}", response=BookDetailOut)
 def get_book(request, book_id: int):
-    return get_object_or_404(books_qs(request.user), pk=book_id)
+    return with_yoto([get_object_or_404(books_qs(request.user), pk=book_id)])[0]
 
 
 class ConvertIn(Schema):

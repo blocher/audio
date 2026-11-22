@@ -28,10 +28,13 @@ import {
 import { Button, Empty, PageHead, useToast } from "../components/ui";
 import { relative } from "../format";
 import { useListMemory, useUpdateParams } from "../hooks/listMemory";
+import { useFeatures } from "../hooks/session";
 import { useAction } from "../hooks/queries";
 import type { AudibleAccount, Playlist } from "../types";
 
 type Kind = "all" | "books" | "podcasts" | "local";
+
+const KIND_TITLES: Record<Kind, string> = { all: "Library", books: "Audiobooks", podcasts: "Podcasts", local: "My own files" };
 
 /** Library filters, each kept in the URL so a filtered view can be bookmarked or shared. */
 const FILTERS: {
@@ -55,7 +58,7 @@ const FILTERS: {
   },
   {
     key: "mp3",
-    label: "MP3 ready",
+    label: "Downloaded",
     icon: <CheckCircle2 size={15} />,
     test: (i) => !!i.ready,
   },
@@ -106,6 +109,7 @@ export default function Library() {
     queryFn: () => api.get<Playlist[]>("/yoto/playlists"),
   });
   const library = useLibraryItems();
+  const has = useFeatures();
   useListMemory(!library.loading);
   const sync = useAction((id: number) => api.post(`/audible/accounts/${id}/sync`), [["books"]]);
 
@@ -154,11 +158,13 @@ export default function Library() {
   return (
     <>
       <PageHead
-        title={account ? `${account.name}'s library` : "Your listening library"}
+        title={account ? `${account.name}'s library` : KIND_TITLES[kind]}
         lede={
           account
             ? `${account.book_count} titles on Audible · synced ${relative(account.last_synced_at)}`
-            : "Everything everyone has added, in one place."
+            : has("yoto")
+              ? "Tap Send to Yoto under anything here to put it on a Yoto card."
+              : "Everything everyone in your home has added, in one place."
         }
         actions={
           <>
@@ -195,7 +201,7 @@ export default function Library() {
                   ["all", "All audio", null],
                   ["books", "Audiobooks", <BookOpen size={16} key="b" />],
                   ["podcasts", "Podcasts", <Mic size={16} key="p" />],
-                  ["local", "Local files", <Folder size={16} key="l" />],
+                  ["local", "My own files", <Folder size={16} key="l" />],
                 ] as const
               ).map(([k, label, icon]) => (
                 <button key={k} className={`chip ${kind === k ? "active" : ""}`} onClick={() => setKind(k)}>

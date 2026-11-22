@@ -67,10 +67,10 @@ def create_playlist(
 
 
 def create_from_cards(
-    cards: list[packing.Card], account: YotoAccount | None, cover_url: str = "", name: str = ""
+    cards: list[packing.Card], account: YotoAccount | None, cover_url: str = "", name: str = "", batch: str = ""
 ) -> list[Playlist]:
     """One draft playlist per card. With a ``name`` the cards are titled "Name (3 of 24)" instead of by contents."""
-    batch = uuid.uuid4().hex[:12]
+    batch = batch or uuid.uuid4().hex[:12]
     name = name.strip()
 
     def title(n: int, card: packing.Card) -> str:

@@ -40,6 +40,29 @@
         "--strictPort"
       ],
       "port": 5184
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "backend/manage.py",
+        "runserver",
+        "127.0.0.1:8011"
+      ],
+      "port": 8011
+    },
+    {
+      "name": "redis",
+      "runtimeExecutable": "redis-server",
+      "runtimeArgs": [
+        "--port",
+        "6390",
+        "--save",
+        "",
+        "--appendonly",
+        "no"
+      ],
+      "port": 6390
     }
   ]
 }

@@ -72,7 +72,7 @@ export function DownsizeDialog({ tracks, onClose }: { tracks: Track[]; onClose: 
   const run = useAction(() => api.post<Job>("/tracks/optimize", { track_ids: withFiles.map((t) => t.id), kbps, mono }), [["books"], ["podcast"], ["collection"]]);
   return (
     <Modal
-      title="Downsize audio"
+      title="Make the files smaller"
       onClose={onClose}
       footer={
         <>
@@ -94,7 +94,7 @@ export function DownsizeDialog({ tracks, onClose }: { tracks: Track[]; onClose: 
               })
             }
           >
-            Downsize {withFiles.length} file{withFiles.length === 1 ? "" : "s"}
+            Make {withFiles.length} file{withFiles.length === 1 ? "" : "s"} smaller
           </Button>
         </>
       }

@@ -1,7 +1,6 @@
-// Signing in to another service without leaving the app: open its page in a small popup window, and wait for our
-// /connected page (where the service sends people back) to report the result. A BroadcastChannel carries the news,
-// because sign-in pages often cut the popup's link to its opener. If the browser blocks popups, the whole tab goes
-// instead and /connected brings it back to where it started.
+// Signing in to another service (Yoto, OpenRouter) happens in this same tab: the browser goes to the service's
+// sign-in page and comes straight back to the page it started from. Popups were easy to lose behind the browser
+// window, and browsers warn about them, so the whole tab goes instead.
 
 export interface ConnectResult {
   service: string;
@@ -11,39 +10,21 @@ export interface ConnectResult {
 
 const CHANNEL = "audio-connect";
 
-export function openPopup(url: string, name = "audio-connect"): Window | null {
-  const width = 520;
-  const height = 720;
-  const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
-  const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
-  return window.open(url, name, `popup,width=${width},height=${height},left=${left},top=${top}`);
+/** Where to come back to after signing in: this page, plus any extra query (e.g. reopen a dialog). */
+export function here(extra: Record<string, string> = {}): string {
+  const url = new URL(window.location.href);
+  for (const key of ["connected", "error", "service"]) url.searchParams.delete(key);
+  for (const [k, v] of Object.entries(extra)) url.searchParams.set(k, v);
+  return url.pathname + url.search;
 }
 
-/** Open a sign-in page in a popup; resolves when it reports back (or rejects if the window is closed first). */
-export function connectInPopup(url: string, service: string): Promise<ConnectResult> {
-  const popup = openPopup(url);
-  if (!popup) {
-    window.location.href = url; // popups blocked: go in this tab, and /connected comes back here
-    return new Promise(() => {});
-  }
-  return new Promise((resolve, reject) => {
-    const channel = new BroadcastChannel(CHANNEL);
-    const finish = (fn: () => void) => {
-      channel.close();
-      window.clearInterval(watch);
-      fn();
-    };
-    channel.onmessage = (event: MessageEvent<ConnectResult>) => {
-      if (event.data?.service === service) finish(() => resolve(event.data));
-    };
-    // A closed window with no news: they gave up. Give a late message a moment to arrive first.
-    const watch = window.setInterval(() => {
-      if (popup.closed) window.setTimeout(() => finish(() => reject(new Error("closed"))), 800);
-    }, 500);
-  });
+/** Go to a sign-in page in this tab. Never resolves: the page unloads. */
+export function goToSignIn(url: string): Promise<never> {
+  window.location.assign(url);
+  return new Promise(() => {});
 }
 
-/** Called by the /connected page inside the popup. */
+/** Called by /connected when an older popup sign-in finishes, so the window that opened it hears about it. */
 export function announce(result: ConnectResult) {
   const channel = new BroadcastChannel(CHANNEL);
   channel.postMessage(result);

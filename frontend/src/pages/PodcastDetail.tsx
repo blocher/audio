@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { RESTORE, listHref } from "../hooks/listMemory";
-import CardPlanner from "../components/CardPlanner";
+import SendToYoto from "../components/SendToYoto";
 import { AskPanel } from "../components/Ask";
 import { TranscriptView } from "../components/Listen";
 import { TrackStatus, queueFor } from "../components/TrackList";
@@ -96,11 +96,11 @@ export default function PodcastDetail() {
             <Button variant="primary" icon={<Download size={17} />} disabled={!!job} onClick={() => setDialog("download")}>
               {selected.size ? `Download ${selected.size} selected` : `Download all (${p.episode_count - p.downloaded_count})`}
             </Button>
-            <Button icon={<SquareStack size={16} />} disabled={!saved.length} onClick={() => setDialog("yoto")}>
-              Make Yoto cards
+            <Button icon={<SquareStack size={16} />} disabled={!saved.length} title={saved.length ? undefined : "Download some episodes first"} onClick={() => setDialog("yoto")}>
+              {selected.size ? "Send selected to Yoto" : "Send to Yoto"}
             </Button>
             <Button icon={<FileText size={16} />} disabled={!saved.length} onClick={() => setDialog("transcribe")}>Transcribe</Button>
-            <Button icon={<Minimize2 size={16} />} disabled={!saved.length} onClick={() => setDialog("downsize")}>Downsize</Button>
+            <Button icon={<Minimize2 size={16} />} disabled={!saved.length} onClick={() => setDialog("downsize")}>Make smaller</Button>
             <Button variant="ghost" icon={<RefreshCw size={16} />} loading={refresh.isPending} onClick={() => refresh.mutate(undefined, { onSuccess: () => toast("Feed refreshed") })}>
               Refresh
             </Button>
@@ -214,7 +214,7 @@ export default function PodcastDetail() {
       {dialog === "downsize" && <DownsizeDialog tracks={chosenTracks.length ? chosenTracks : savedTracks} onClose={() => setDialog(null)} />}
       {dialog === "transcribe" && <TranscribeDialog tracks={chosenTracks.length ? chosenTracks : savedTracks} onClose={() => setDialog(null)} />}
       {dialog === "yoto" && (
-        <CardPlanner groups={yotoGroups} coverUrl={p.image_url} onClose={() => setDialog(null)} />
+        <SendToYoto source={{ kind: "groups", groups: yotoGroups, cover: p.image_url }} returnTo={`/podcasts/${p.id}`} onClose={() => setDialog(null)} />
       )}
       {episodeView && episodeView.episode.track && (
         <Modal wide title={episodeView.episode.title} onClose={() => setEpisodeView(null)}>

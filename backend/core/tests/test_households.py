@@ -217,7 +217,7 @@ def test_yoto_sign_in_comes_back_to_the_page_that_started_it(client, ben, monkey
     state = re.search(r"state=([^&]+)", started.json()["authorize_url"]).group(1)
     monkeypatch.setattr(yoto_client, "finish_authorize", lambda account, code, state: None)
     back = client.get(f"/api/yoto/callback?code=c&state={state}")
-    assert back.status_code == 302 and back["Location"] == "/welcome?step=yoto&connected=1"
+    assert back.status_code == 302 and back["Location"] == "/welcome?step=yoto&connected=1&service=yoto"
     assert YotoAccount.objects.get().pending_login["return_to"] == "/welcome?step=yoto"
     # Only paths on this site.
     client.post("/api/yoto/accounts", {"return_to": "https://evil.example"}, content_type="application/json")

@@ -22,6 +22,7 @@ export default function Connected() {
     const back = () => {
       const next = new URL(returnTo, window.location.origin);
       if (connected) next.searchParams.set("connected", "1");
+      if (service) next.searchParams.set("service", service);
       if (error) next.searchParams.set("error", error);
       window.location.replace(next.pathname + next.search);
     };

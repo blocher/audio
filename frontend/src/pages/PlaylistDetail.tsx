@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { queueFor } from "../components/TrackList";
+import { SendProgressModal, YotoNextSteps, useConnectYoto } from "../components/SendToYoto";
 import { Button, Meter, Modal, Note, Spinner, errorText, useToast } from "../components/ui";
-import { bytes, clock, duration, mb, relative } from "../format";
+import { clock, duration, mb, relative } from "../format";
 import { sameOrder, shiftKeys, toEdge, useDragSort } from "../hooks/dragSort";
 import { useAction, useActiveJob } from "../hooks/queries";
 import { usePlayer } from "../player";
@@ -37,6 +38,8 @@ export default function PlaylistDetail() {
   const [description, setDescription] = useState("");
   const save = useAction((body: object) => api.patch<PlaylistDetailT>(`/yoto/playlists/${id}`, body), [["playlist", id], ["playlists"]]);
   const sync = useAction(() => api.post<Job>("/yoto/sync", { playlist_ids: [Number(id)] }), [["playlist", id]]);
+  const [following, setFollowing] = useState<number | null>(null);
+  const connectYoto = useConnectYoto();
   const [deleting, setDeleting] = useState(false);
   const [adding, setAdding] = useState(false);
   const [picked, setPicked] = useState<Set<number>>(new Set());
@@ -117,17 +120,15 @@ export default function PlaylistDetail() {
   };
 
   const connected = (accounts.data ?? []).some((a) => a.connected);
-  // The card limits come from Settings; a length limit of 0 means length isn't checked.
+  // A card is 500 MB (Settings can change it); length doesn't matter.
   const limitMb = settings.data?.preferences.card_limit_mb || 500;
-  const limitHours = settings.data?.preferences.card_limit_hours ?? 0;
   const fillBytes = p.total_bytes / (limitMb * 1024 * 1024);
-  const fillTime = limitHours > 0 ? p.total_duration_ms / (limitHours * 3600 * 1000) : 0;
   const dirty = title !== p.title || description !== p.description;
 
   return (
     <>
       <Link to="/yoto" className="breadcrumb">
-        <ArrowLeft size={15} /> Yoto cards
+        <ArrowLeft size={15} /> Your Yoto cards
       </Link>
       <section className="hero playlist">
         <div className="card-art" style={{ width: 160, fontSize: "2.4rem" }}>
@@ -141,33 +142,34 @@ export default function PlaylistDetail() {
           </div>
           <input className="input serif" style={{ fontSize: "var(--text-2xl)", height: 54, fontWeight: 600 }} value={title} maxLength={140} onChange={(e) => setTitle(e.target.value)} aria-label="Title" />
           <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description shown in the Yoto app (optional)" />
-          <div className="grid-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <div>
-              <div className="row muted" style={{ fontSize: "var(--text-xs)", marginBottom: 4 }}>
-                Size <span className="spacer" /> {bytes(p.total_bytes)} / {limitMb} MB
-              </div>
-              <Meter value={fillBytes} />
+          <div style={{ maxWidth: 420 }}>
+            <div className="row muted" style={{ fontSize: "var(--text-xs)", marginBottom: 4 }}>
+              <b style={{ color: "var(--ink)" }}>{Math.round(fillBytes * 100)}% of the card</b> <span className="spacer" /> {mb(p.total_bytes)} of {limitMb} MB · {duration(p.total_duration_ms)}
             </div>
-            <div>
-              <div className="row muted" style={{ fontSize: "var(--text-xs)", marginBottom: 4 }}>
-                Length <span className="spacer" /> {duration(p.total_duration_ms)}
-                {limitHours > 0 && ` / ${limitHours} h`}
-              </div>
-              {limitHours > 0 && <Meter value={fillTime} />}
-            </div>
+            <Meter value={fillBytes} />
           </div>
-          {(fillBytes > 1 || fillTime > 1 || p.item_count > 100) && <Note tone="error">{fillTime > 1 && fillBytes <= 1 && p.item_count <= 100 ? `This is longer than the ${limitHours}-hour limit in Settings; remove some tracks, or set the limit to 0 if Yoto accepts it.` : "This is over a Yoto card's limits; remove some tracks or re-plan with a lower bitrate."}</Note>}
+          {(fillBytes > 1 || p.item_count > 100) && (
+            <Note tone="error">
+              {p.item_count > 100 ? "A card holds up to 100 tracks; remove some." : "This is more than a card holds; remove some tracks, or send the book again at a smaller size."}
+            </Note>
+          )}
           {p.last_error && p.status === "failed" && <Note tone="error">{p.last_error}</Note>}
           <div className="row wrap">
-            <Button
-              variant="sage"
-              icon={<CloudUpload size={16} />}
-              disabled={!connected || !!job}
-              loading={sync.isPending}
-              onClick={() => sync.mutate(undefined, { onSuccess: () => toast("Syncing to Yoto"), onError: (e) => toast(errorText(e), "error") })}
-            >
-              {p.card_id ? "Update on Yoto" : "Send to Yoto"}
-            </Button>
+            {connected ? (
+              <Button
+                variant={p.status === "synced" ? undefined : "primary"}
+                icon={<CloudUpload size={16} />}
+                disabled={!!job}
+                loading={sync.isPending}
+                onClick={() => sync.mutate(undefined, { onSuccess: (j) => setFollowing(j.id), onError: (e) => toast(errorText(e), "error") })}
+              >
+                {p.card_id ? "Resend to Yoto" : "Send to Yoto"}
+              </Button>
+            ) : (
+              <Button variant="primary" icon={<SquareStack size={16} />} onClick={() => void connectYoto()}>
+                Connect Yoto to send it
+              </Button>
+            )}
             {dirty && (
               <Button icon={<Save size={16} />} loading={save.isPending} onClick={() => save.mutate({ title, description })}>
                 Save
@@ -182,11 +184,11 @@ export default function PlaylistDetail() {
               Delete
             </Button>
           </div>
-          {!connected && <Note tone="info">Connect a Yoto account on the Yoto page to send this card.</Note>}
-          {p.card_id && <Note tone="info">Link it to a physical Make-Your-Own card from the Yoto app: Library → this playlist → Link to card.</Note>}
+          {p.status === "synced" && <YotoNextSteps title={p.title} />}
           {job && <JobLine job={job} />}
         </div>
       </section>
+      {following && <SendProgressModal jobId={following} title={p.title} onClose={() => setFollowing(null)} />}
       {deleting && <DeletePlaylist playlist={p} onClose={() => setDeleting(false)} onDeleted={() => navigate("/yoto")} />}
       {adding && <SourcePicker addTo={{ title: p.title, freeBytes: limitMb * MIB - p.total_bytes }} onClose={() => setAdding(false)} onPicked={addTracks} />}
 

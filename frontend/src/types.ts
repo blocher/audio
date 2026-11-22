@@ -168,6 +168,9 @@ export interface Book {
   transcribed_count: number;
   /** The chapters at their current size (downsized where done). */
   size_bytes: number;
+  /** The Yoto cards made from this book: "" (none yet) or the status that matters most across them. */
+  yoto_status: "" | Playlist["status"];
+  yoto_playlist_ids: number[];
 }
 
 export interface BookDetail extends Book {
@@ -325,6 +328,14 @@ export interface PackPreview {
   total_duration_ms: number;
   limit_bytes: number;
   limit_duration_ms: number;
+}
+
+/** How many cards each audio size needs: "as is" (kbps null) and each downsizing preset. */
+export interface PackOptions {
+  options: { kbps: number | null; cards: number | null; bytes: number; last_fill: number }[];
+  /** The files' average bitrate now; null for a book that isn't downloaded yet. */
+  current_kbps: number | null;
+  card_bytes: number;
 }
 
 export interface Preset {

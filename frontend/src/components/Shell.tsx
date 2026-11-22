@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AudioLines,
+  BookOpen,
   Download,
   Folder,
   House,
@@ -14,14 +15,14 @@ import {
   SquareStack,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useScrollTopOnNavigate } from "../hooks/listMemory";
 import { useJobs } from "../hooks/queries";
 import { clearUserCaches, promptInstall, usePwa } from "../pwa";
 import type { AudibleAccount, User, YotoAccount } from "../types";
 import PlayerBar from "./PlayerBar";
-import { Button, SourceIcon } from "./ui";
+import { Button, SourceIcon, useToast } from "./ui";
 
 export default function Shell({ user, children }: { user: User; children: ReactNode }) {
   const qc = useQueryClient();
@@ -43,18 +44,37 @@ export default function Shell({ user, children }: { user: User; children: ReactN
     qc.invalidateQueries({ queryKey: ["session"] });
   }
 
-  // Everyone gets the whole menu; what they picked in the setup wizard only decides what it helped them set up.
-  type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; count?: number; show?: boolean };
-  const nav: NavItem[] = [
-    { to: "/", label: "Home", icon: <House size={20} />, end: true },
-    { to: "/library", label: "Library", icon: <LibraryBig size={20} /> },
-    { to: "/podcasts", label: "Podcasts", icon: <Mic size={20} /> },
-    { to: "/folders", label: "Local folders", icon: <Folder size={20} /> },
-    { to: "/yoto", label: "Yoto cards", icon: <SquareStack size={20} /> },
-    { to: "/activity", label: "Activity", icon: <Activity size={20} />, count: running || undefined },
-    { to: "/superadmin", label: "Super admin", icon: <ShieldCheck size={20} />, show: user.is_admin },
-  ].filter((item) => item.show !== false);
+  // Coming back from signing in to Yoto (this tab went to Yoto and back): say so, refresh, and tidy the address.
+  const toast = useToast();
+  const navigate = useNavigate();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("service") !== "yoto") return;
+    if (params.get("error")) toast(`Yoto sign-in didn't finish: ${params.get("error")}`, "error");
+    else if (params.get("connected")) toast("Your Yoto account is connected");
+    for (const key of ["yoto-accounts", "onboarding", "playlists"]) qc.invalidateQueries({ queryKey: [key] });
+    for (const key of ["service", "connected", "error"]) params.delete(key);
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
+  }, [location.search, location.pathname, navigate, qc, toast]);
 
+  // The menu follows how the site is used: your audio (all of it, then each kind), then the Yoto cards made from it.
+  // Everyone gets the whole menu; what they picked in the setup wizard only shapes setup and Home.
+  const kind = new URLSearchParams(location.search).get("kind");
+  const at = (path: string, k: string | null = null) => location.pathname === path && (k === null ? !kind : kind === k);
+  type Item = { to: string; label: string; icon: ReactNode; active: boolean; count?: number; sub?: boolean };
+  const audio: Item[] = [
+    { to: "/library", label: "Library", icon: <LibraryBig size={20} />, active: at("/library") },
+    { to: "/library?kind=books", label: "Audiobooks", icon: <BookOpen size={18} />, active: at("/library", "books") || location.pathname.startsWith("/books/"), sub: true },
+    { to: "/podcasts", label: "Podcasts", icon: <Mic size={18} />, active: location.pathname.startsWith("/podcasts") || at("/library", "podcasts"), sub: true },
+    { to: "/folders", label: "My own files", icon: <Folder size={18} />, active: location.pathname.startsWith("/folders") || at("/library", "local"), sub: true },
+  ];
+  const link = (item: Item) => (
+    <Link key={item.to} to={item.to} className={`${item.active ? "active" : ""} ${item.sub ? "sub" : ""}`} aria-current={item.active ? "page" : undefined}>
+      {item.icon}
+      {item.label}
+      {item.count ? <span className="count">{item.count}</span> : null}
+    </Link>
+  );
 
   return (
     <div className="shell">
@@ -63,13 +83,20 @@ export default function Shell({ user, children }: { user: User; children: ReactN
           <AudioLines size={26} /> Audio
         </Link>
         <nav className="nav" aria-label="Main">
-          {nav.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end}>
-              {item.icon}
-              {item.label}
-              {item.count ? <span className="count">{item.count}</span> : null}
-            </NavLink>
-          ))}
+          {link({ to: "/", label: "Home", icon: <House size={20} />, active: location.pathname === "/" })}
+          <div className="nav-group">
+            <div className="sidebar-label">Your audio</div>
+            {audio.map(link)}
+          </div>
+          <div className="nav-group">
+            <div className="sidebar-label">Make</div>
+            {link({ to: "/yoto", label: "Yoto cards", icon: <SquareStack size={20} />, active: location.pathname.startsWith("/yoto") })}
+            <p className="nav-hint">Pick anything in your library and tap Send to Yoto.</p>
+          </div>
+          <div className="nav-group">
+            {link({ to: "/activity", label: "Activity", icon: <Activity size={20} />, active: location.pathname === "/activity", count: running || undefined })}
+            {user.is_admin && link({ to: "/superadmin", label: "Super admin", icon: <ShieldCheck size={20} />, active: location.pathname === "/superadmin" })}
+          </div>
         </nav>
 
         <div className="sidebar-section">

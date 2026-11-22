@@ -19,7 +19,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
-import { connectInPopup } from "../connect";
+import { goToSignIn } from "../connect";
 import { AiQuickSetup } from "../components/AiSetup";
 import { AudibleSignInSteps } from "../components/AudibleConnect";
 import { Button, Note, SourceIcon, Spinner, errorText } from "../components/ui";
@@ -302,7 +302,7 @@ function AudibleStep({ data, onNext, onBack }: { data: Onboarding; onNext: () =>
     return (
       <>
         <h1>Sign in to {signingIn.name === data.name ? "your" : `${signingIn.name}'s`} Audible</h1>
-        <p className="welcome-lede">Three short steps. Amazon doesn't let other apps show its sign-in here, so it opens in a new tab.</p>
+        <p className="welcome-lede">Three steps. Amazon's sign-in opens in a new tab; keep this tab open and come back to it.</p>
         <AudibleSignInSteps
           account={signingIn}
           onConnected={() => {
@@ -481,6 +481,7 @@ function YotoStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => vo
     }
   }, [justConnected, qc]);
 
+  // Yoto's sign-in happens in this tab, which comes straight back to this step: no popup to lose behind the window.
   async function connect() {
     setBusy(true);
     setError("");
@@ -488,15 +489,11 @@ function YotoStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => vo
       const { authorize_url } = await api.post<{ authorize_url: string }>("/yoto/accounts", {
         name: data.name,
         return_to: "/welcome?step=yoto",
-        popup: true,
+        popup: false,
       });
-      const result = await connectInPopup(authorize_url, "yoto");
-      if (result.error) setError(result.error);
-      qc.invalidateQueries({ queryKey: ["onboarding"] });
-      qc.invalidateQueries({ queryKey: ["yoto-accounts"] });
+      await goToSignIn(authorize_url);
     } catch (e) {
-      if (!(e instanceof Error && e.message === "closed")) setError(errorText(e));
-    } finally {
+      setError(errorText(e));
       setBusy(false);
     }
   }
@@ -507,8 +504,8 @@ function YotoStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => vo
       <h1>{connected.length ? "Yoto is connected" : `Connect your Yoto account${optional ? " (optional)" : ""}`}</h1>
       <p className="welcome-lede">
         {connected.length
-          ? "Cards you make here are sent straight to your Yoto app. Then link each one to a blank card in the Yoto app."
-          : "This lets Audio send cards to your Yoto app. A small Yoto sign-in window opens; sign in there and it closes by itself."}
+          ? "Anything you send to Yoto shows up in the Yoto app's Library, ready to link to a blank card."
+          : "So Audio can send cards to your Yoto app. You'll go to Yoto's site to sign in, then come straight back here."}
       </p>
       {connected.map((c) => (
         <Done key={c}>Connected to {c}</Done>
@@ -600,10 +597,10 @@ function DoneStep({ data, onFinish }: { data: Onboarding; onFinish: (to?: string
       <h2>What would you like to do first?</h2>
       <div className="use-choices">
         {wantsYoto && (
-          <button type="button" className="use-choice" onClick={() => void onFinish("/yoto?new=1")}>
+          <button type="button" className="use-choice" onClick={() => void onFinish("/")}>
             <span className="use-icon"><SquareStack size={26} /></span>
-            <strong>Make a Yoto card</strong>
-            <span>Pick a book or podcast, and Audio fits it onto as few cards as possible.</span>
+            <strong>Make my first Yoto card</strong>
+            <span>Pick a book and tap Send to Yoto. We do the rest.</span>
           </button>
         )}
         {wantsAsk && (
