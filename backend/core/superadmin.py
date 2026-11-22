@@ -172,6 +172,18 @@ def overview(request):
     }
 
 
+@router.delete("/households/{int:hid}")
+def delete_library(request, hid: int):
+    """Delete a library nobody uses any more (its people were removed), with everything in it."""
+    from .purge import purge_household
+
+    _require_super_admin(request)
+    household = get_object_or_404(Household, pk=hid)
+    if Member.objects.filter(household=household).exists():
+        raise HttpError(400, "People still use this library; remove them first")
+    return {"ok": True, **purge_household(household)}
+
+
 @router.post("/impersonate/{int:user_id}")
 def impersonate(request, user_id: int):
     """Sign in as someone else to see what they see. The session remembers who to switch back to."""

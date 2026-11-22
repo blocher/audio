@@ -258,6 +258,10 @@ def remove_person(request, user_id: int, everything: bool = False):
     if user.pk == request.user.pk:
         raise HttpError(400, "You can't remove yourself")
     if not everything:
+        # Their login goes, and with it any invitation to them, so it doesn't linger on the dashboard.
+        Invite.objects.filter(accepted_user=user).delete()
+        if user.email:
+            Invite.objects.filter(email__iexact=user.email).delete()
         user.delete()
         return {"ok": True, "library_deleted": False}
     from .purge import purge_person
@@ -441,5 +445,6 @@ def resend_invite(request, invite_id: int):
 @router.delete("/invites/{invite_id}")
 def cancel_invite(request, invite_id: int):
     _require_admin(request)
-    get_object_or_404(_pending_invites(), pk=invite_id).delete()
+    # Waiting or accepted: either way the record goes for good (an accepted one's login is untouched).
+    get_object_or_404(Invite, pk=invite_id).delete()
     return {"ok": True}

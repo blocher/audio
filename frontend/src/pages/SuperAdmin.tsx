@@ -188,24 +188,36 @@ function InvitesPanel({ data }: { data: Overview }) {
                   {!i.accepted_at && <span>{i.emailed_at ? "emailed" : "link not emailed"}</span>}
                 </div>
               </div>
-              {!i.accepted_at && (
-                <div className="actions">
+              <div className="actions">
                   {i.link && (
                     <Button size="sm" variant="ghost" icon={<Copy size={14} />} onClick={() => void navigator.clipboard?.writeText(i.link!).then(() => toast("Link copied"))}>
                       Copy link
                     </Button>
                   )}
-                  <Button
+                  {!i.accepted_at && <Button
                     size="sm"
                     variant="ghost"
                     icon={i.expired ? <RefreshCw size={14} /> : <Send size={14} />}
                     onClick={() => resend.mutate(i.id, { onSuccess: (r) => toast(r.emailed ? `Sent again to ${i.email}` : "Link renewed for two more weeks") })}
                   >
                     {i.expired ? "Renew" : "Resend"}
-                  </Button>
-                  <Button size="sm" variant="danger" iconOnly icon={<Trash2 size={14} />} aria-label={`Delete ${i.email}'s invitation`} title="Delete invitation" onClick={() => confirm(`Delete the invitation to ${i.email}? The link stops working and it's gone for good.`) && cancel.mutate(i.id)} />
+                  </Button>}
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    iconOnly
+                    icon={<Trash2 size={14} />}
+                    aria-label={`Delete ${i.email}'s invitation`}
+                    title="Delete invitation"
+                    onClick={() =>
+                      confirm(
+                        i.accepted_at
+                          ? `Delete the record of ${i.email}'s invitation? Their login isn't affected.`
+                          : `Delete the invitation to ${i.email}? The link stops working and it's gone for good.`,
+                      ) && cancel.mutate(i.id)
+                    }
+                  />
                 </div>
-              )}
             </div>
           ))}
         </div>
@@ -219,6 +231,7 @@ function LibraryPanel({ library: h }: { library: LibraryRow }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [viewing, setViewing] = useState<number | null>(null);
+  const deleting = useAction(() => api.del(`/superadmin/households/${h.id}`), [["superadmin"], ["households"]]);
   const u = h.usage;
   const [tone, keys] = KEY_LABELS[h.ai_keys];
 
@@ -267,7 +280,23 @@ function LibraryPanel({ library: h }: { library: LibraryRow }) {
             )}
           </div>
         ))}
-        {!h.people.length && <div className="list-row muted">Nobody in this library any more.</div>}
+        {!h.people.length && (
+          <div className="list-row">
+            <span className="muted" style={{ flex: 1 }}>Nobody uses this library any more.</span>
+            <Button
+              size="sm"
+              variant="danger"
+              icon={<Trash2 size={14} />}
+              loading={deleting.isPending}
+              onClick={() =>
+                confirm(`Delete ${h.name} and everything in it (Audible accounts, books and their audio, podcasts, folders, cards, keys)? This can't be undone.`) &&
+                deleting.mutate(undefined, { onSuccess: () => toast(`Deleted ${h.name}`), onError: (e) => toast(errorText(e), "error") })
+              }
+            >
+              Delete this library
+            </Button>
+          </div>
+        )}
       </div>
       <dl className="kv admin-usage">
         <dt>Audible</dt>
