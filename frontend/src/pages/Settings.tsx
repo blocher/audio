@@ -118,7 +118,7 @@ function SetupSection() {
         <div className="field">
           <span>Where my audio comes from</span>
           {group(SOURCES)}
-          <small>Only these show in the menu. Turn something on here any time; nothing is deleted when it's off.</small>
+          <small>These decide what setup walks you through and what Home suggests. Everything stays in the menu either way.</small>
         </div>
         {data && (
           <p className="muted" style={{ margin: 0 }}>

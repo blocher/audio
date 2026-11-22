@@ -26,10 +26,3 @@ export function useFeatures(): (feature: Feature) => boolean {
   const set = featureSet(useMe()?.features);
   return (feature) => set.has(feature);
 }
-
-/** Whether Ask-related buttons are worth showing: they chose Ask, or an AI key is set up anyway. */
-export function useAskVisible(): boolean {
-  const has = useFeatures();
-  const status = useOnboarding();
-  return has("ask") || !!(status.data?.ai.transcribe || status.data?.ai.ask);
-}

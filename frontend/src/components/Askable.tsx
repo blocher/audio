@@ -2,7 +2,7 @@ import { MessageCircle, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAction, useActiveJob } from "../hooks/queries";
-import { useAskVisible, useOnboarding } from "../hooks/session";
+import { useOnboarding } from "../hooks/session";
 import type { Book, Job } from "../types";
 import { Button, errorText, useToast } from "./ui";
 
@@ -79,10 +79,8 @@ export function MakeAskableButton({
 export function CardAskFooter({ book }: { book: Pick<Book, "id" | "track_count" | "transcribed_count"> }) {
   const { job, start, pending } = useMakeAskable(book.id);
   const status = useOnboarding();
-  const showAsk = useAskVisible();
   const state = askState(book);
   const noAi = status.data && !status.data.ai.transcribe;
-  if (!showAsk && state === "none" && !job) return null;
   if (job)
     return (
       <div className="card-ask working" title={job.message || job.title}>
