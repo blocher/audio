@@ -61,7 +61,8 @@ def test_bad_input_is_refused(client, admin):
 def test_everyone_else_manages_only_themselves(client, django_user_model, admin):
     kid = django_user_model.objects.create_user("kid", password=PW)
     client.force_login(kid)
-    assert [p["username"] for p in client.get("/api/users").json()] == ["kid"]
+    # They see who shares their library, but can only change themselves.
+    assert [p["username"] for p in client.get("/api/users").json()] == ["ben", "kid"]
     assert (
         client.post("/api/users", {"username": "x", "password": PW}, content_type="application/json").status_code
         == 403

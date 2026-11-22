@@ -47,8 +47,17 @@ export default function Login() {
           </div>
           {error && <Note tone="error">{error}</Note>}
           <label className="field">
-            <span>Username</span>
-            <input className="input" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required />
+            <span>Email or username</span>
+            <input
+              className="input"
+              autoComplete="username"
+              autoCapitalize="none"
+              inputMode="email"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoFocus
+              required
+            />
           </label>
           <label className="field">
             <span>Password</span>
@@ -57,6 +66,10 @@ export default function Login() {
           <Button variant="primary" size="lg" type="submit" loading={busy} icon={<LogIn size={18} />}>
             Sign in
           </Button>
+          <p className="muted" style={{ fontSize: "var(--text-sm)", margin: 0 }}>
+            New here? Open the invitation link in your email to make your login. Forgot your password? Ask whoever
+            invited you to set a new one.
+          </p>
         </form>
       </section>
     </div>

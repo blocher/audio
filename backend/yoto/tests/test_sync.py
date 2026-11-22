@@ -88,6 +88,7 @@ class FakeApi:
     """Records how many uploads run at once; ``fail_path`` makes that file's upload fail."""
 
     def __init__(self, account, delay=0.2, fail_path=None):
+        self.account = account
         self.delay = delay
         self.fail_path = fail_path
         self.lock = threading.Lock()

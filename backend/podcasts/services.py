@@ -15,11 +15,11 @@ def slug(text: str, limit: int = 60) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:limit] or "audio"
 
 
-def subscribe(url: str) -> Podcast:
+def subscribe(url: str, household_id: int) -> Podcast:
     feed_url, apple_url = resolve_feed_url(url)
-    podcast = Podcast.objects.filter(feed_url=feed_url).first()
+    podcast = Podcast.objects.filter(household_id=household_id, feed_url=feed_url).first()
     if podcast is None:
-        podcast = Podcast(feed_url=feed_url, apple_url=apple_url, title="…")
+        podcast = Podcast(household_id=household_id, feed_url=feed_url, apple_url=apple_url, title="…")
     elif apple_url and not podcast.apple_url:
         podcast.apple_url = apple_url
     refresh(podcast)

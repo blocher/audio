@@ -1,6 +1,7 @@
 import pytest
 
 from core.models import Track
+from local_audio.models import Collection
 from yoto.models import Playlist, PlaylistItem
 
 
@@ -12,8 +13,13 @@ def signed_in(client, django_user_model):
 
 @pytest.mark.django_db
 def test_added_tracks_go_on_the_end_and_long_ones_are_split(signed_in):
-    short = Track.objects.create(source="local", title="Short", duration_ms=10 * 60_000, size_bytes=5_000_000)
-    long = Track.objects.create(source="local", title="Long", duration_ms=90 * 60_000, size_bytes=40_000_000)
+    folder = Collection.objects.create(name="Folder")
+    short = Track.objects.create(
+        source="local", collection=folder, title="Short", duration_ms=10 * 60_000, size_bytes=5_000_000
+    )
+    long = Track.objects.create(
+        source="local", collection=folder, title="Long", duration_ms=90 * 60_000, size_bytes=40_000_000
+    )
     playlist = Playlist.objects.create(title="Card")
     PlaylistItem.objects.create(playlist=playlist, track=short, position=0)
 

@@ -7,6 +7,7 @@ from ninja.errors import HttpError
 
 from core.api import JobOut, TrackOut
 from core.jobs import enqueue
+from core.tenancy import household_id
 
 from .feeds import FeedError, search_apple
 from .models import Episode, Podcast
@@ -71,8 +72,8 @@ class PodcastDetailOut(PodcastOut):
         return list(obj.episodes.select_related("track", "track__transcript").order_by("-published_at", "-id"))
 
 
-def annotated():
-    return Podcast.objects.annotate(
+def annotated(household: int):
+    return Podcast.objects.filter(household_id=household).annotate(
         episode_count=Count("episodes", distinct=True),
         downloaded_count=Count("episodes", filter=Q(episodes__status=Episode.Status.READY), distinct=True),
         downloaded_bytes=Sum("episodes__track__size_bytes"),
@@ -123,7 +124,7 @@ def season_summaries(podcast_ids: list[int]) -> dict[int, list[dict]]:
 
 @router.get("", response=list[PodcastOut])
 def list_podcasts(request):
-    rows = list(annotated())
+    rows = list(annotated(household_id(request)))
     seasons = season_summaries([row.pk for row in rows])
     for row in rows:
         row.downloaded_bytes = row.downloaded_bytes or 0
@@ -147,16 +148,16 @@ class SubscribeIn(Schema):
 @router.post("", response=PodcastOut)
 def add_podcast(request, payload: SubscribeIn):
     try:
-        podcast = subscribe(payload.url)
+        podcast = subscribe(payload.url, household_id(request))
     except FeedError as exc:
         raise HttpError(400, str(exc)) from exc
     except Exception as exc:
         raise HttpError(502, f"Couldn't read that feed: {exc}") from exc
-    return _one(podcast.pk)
+    return _one(request, podcast.pk)
 
 
-def _one(pk: int) -> Podcast:
-    podcast = get_object_or_404(annotated(), pk=pk)
+def _one(request, pk: int) -> Podcast:
+    podcast = get_object_or_404(annotated(household_id(request)), pk=pk)
     podcast.downloaded_bytes = podcast.downloaded_bytes or 0
     podcast.downsized_bytes = podcast.downsized_bytes or 0
     podcast.total_duration_ms = podcast.total_duration_ms or 0
@@ -166,24 +167,24 @@ def _one(pk: int) -> Podcast:
 
 @router.get("/{podcast_id}", response=PodcastDetailOut)
 def get_podcast(request, podcast_id: int):
-    return _one(podcast_id)
+    return _one(request, podcast_id)
 
 
 @router.post("/{podcast_id}/refresh", response=PodcastOut)
 def refresh_podcast(request, podcast_id: int):
-    podcast = get_object_or_404(Podcast, pk=podcast_id)
+    podcast = get_object_or_404(Podcast, pk=podcast_id, household_id=household_id(request))
     try:
         refresh(podcast)
     except Exception as exc:
         raise HttpError(502, f"Couldn't refresh: {exc}") from exc
-    return _one(podcast_id)
+    return _one(request, podcast_id)
 
 
 @router.delete("/{podcast_id}")
 def delete_podcast(request, podcast_id: int):
     from core.audio import media_path
 
-    podcast = get_object_or_404(Podcast, pk=podcast_id)
+    podcast = get_object_or_404(Podcast, pk=podcast_id, household_id=household_id(request))
     for episode in podcast.episodes.select_related("track"):
         track = getattr(episode, "track", None)
         if track:
@@ -202,7 +203,7 @@ class DownloadIn(Schema):
 
 @router.post("/{podcast_id}/download", response=JobOut)
 def download(request, podcast_id: int, payload: DownloadIn):
-    podcast = get_object_or_404(Podcast, pk=podcast_id)
+    podcast = get_object_or_404(Podcast, pk=podcast_id, household_id=household_id(request))
     qs = podcast.episodes.all()
     if payload.episode_ids:
         qs = qs.filter(pk__in=payload.episode_ids)

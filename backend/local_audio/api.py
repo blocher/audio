@@ -10,6 +10,7 @@ from ninja.errors import HttpError
 from core import audio
 from core.api import JobOut, TrackOut
 from core.jobs import enqueue
+from core.tenancy import household_id
 
 from .models import Collection
 from .services import add_file, allowed_path, renumber
@@ -45,8 +46,8 @@ class CollectionIn(Schema):
     description: str = ""
 
 
-def annotated():
-    return Collection.objects.annotate(
+def annotated(household: int):
+    return Collection.objects.filter(household_id=household).annotate(
         track_count=Count("tracks", distinct=True),
         total_bytes=Sum("tracks__size_bytes"),
         current_bytes=Sum(
@@ -66,8 +67,8 @@ def annotated():
     )
 
 
-def _one(pk: int):
-    c = get_object_or_404(annotated(), pk=pk)
+def _one(request, pk: int):
+    c = get_object_or_404(annotated(household_id(request)), pk=pk)
     c.total_bytes = c.total_bytes or 0
     c.current_bytes = c.current_bytes or 0
     c.total_duration_ms = c.total_duration_ms or 0
@@ -76,7 +77,7 @@ def _one(pk: int):
 
 @router.get("/collections", response=list[CollectionOut])
 def list_collections(request):
-    rows = list(annotated())
+    rows = list(annotated(household_id(request)))
     for c in rows:
         c.total_bytes = c.total_bytes or 0
         c.current_bytes = c.current_bytes or 0
@@ -86,29 +87,31 @@ def list_collections(request):
 
 @router.post("/collections", response=CollectionOut)
 def create_collection(request, payload: CollectionIn):
-    c = Collection.objects.create(name=payload.name.strip() or "Untitled", description=payload.description)
-    return _one(c.pk)
+    c = Collection.objects.create(
+        household_id=household_id(request), name=payload.name.strip() or "Untitled", description=payload.description
+    )
+    return _one(request, c.pk)
 
 
 @router.get("/collections/{cid}", response=CollectionDetailOut)
 def get_collection(request, cid: int):
-    return _one(cid)
+    return _one(request, cid)
 
 
 @router.patch("/collections/{cid}", response=CollectionOut)
 def update_collection(request, cid: int, payload: CollectionIn):
-    c = get_object_or_404(Collection, pk=cid)
+    c = get_object_or_404(Collection, pk=cid, household_id=household_id(request))
     c.name = payload.name.strip() or c.name
     c.description = payload.description
     c.save()
-    return _one(cid)
+    return _one(request, cid)
 
 
 @router.delete("/collections/{cid}")
 def delete_collection(request, cid: int):
     import shutil
 
-    c = get_object_or_404(Collection, pk=cid)
+    c = get_object_or_404(Collection, pk=cid, household_id=household_id(request))
     for track in c.tracks.all():
         if track.optimized_file:
             audio.media_path(track.optimized_file).unlink(missing_ok=True)
@@ -120,7 +123,7 @@ def delete_collection(request, cid: int):
 @router.post("/collections/{cid}/upload", response=TrackOut)
 def upload(request, cid: int, file: File[UploadedFile], relative_path: Form[str] = ""):
     """Upload one file of a folder. The browser sends files one by one with their path inside the folder."""
-    c = get_object_or_404(Collection, pk=cid)
+    c = get_object_or_404(Collection, pk=cid, household_id=household_id(request))
     name = relative_path or file.name or "audio"
     if Path(name).suffix.lower() not in audio.AUDIO_EXTENSIONS:
         raise HttpError(400, f"{name} isn't an audio file")
@@ -157,9 +160,13 @@ def import_paths(request, payload: ImportPathsIn):
         if not p.exists():
             raise HttpError(400, f"{p} doesn't exist")
     if payload.collection_id:
-        c = get_object_or_404(Collection, pk=payload.collection_id)
+        c = get_object_or_404(Collection, pk=payload.collection_id, household_id=household_id(request))
     else:
-        c = Collection.objects.create(name=payload.name.strip() or paths[0].name, source_paths=[str(p) for p in paths])
+        c = Collection.objects.create(
+            household_id=household_id(request),
+            name=payload.name.strip() or paths[0].name,
+            source_paths=[str(p) for p in paths],
+        )
     return enqueue(
         "local_import",
         f"Import {', '.join(p.name for p in paths)}",
@@ -178,7 +185,7 @@ class ReorderIn(Schema):
 
 @router.post("/collections/{cid}/reorder")
 def reorder(request, cid: int, payload: ReorderIn):
-    c = get_object_or_404(Collection, pk=cid)
+    c = get_object_or_404(Collection, pk=cid, household_id=household_id(request))
     tracks = {t.pk: t for t in c.tracks.all()}
     for n, tid in enumerate(payload.track_ids):
         if t := tracks.get(tid):
@@ -191,7 +198,9 @@ def reorder(request, cid: int, payload: ReorderIn):
 def delete_track(request, track_id: int):
     from core.models import Track
 
-    track = get_object_or_404(Track, pk=track_id, source=Track.Source.LOCAL)
+    track = get_object_or_404(
+        Track, pk=track_id, source=Track.Source.LOCAL, collection__household_id=household_id(request)
+    )
     for f in (track.file, track.optimized_file):
         if f:
             audio.media_path(f).unlink(missing_ok=True)

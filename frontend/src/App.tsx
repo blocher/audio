@@ -1,12 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
 import AppStatus from "./components/AppStatus";
+import ImpersonationBar from "./components/Impersonation";
 import Shell from "./components/Shell";
 import { Spinner, ToastProvider } from "./components/ui";
+import AcceptInvite from "./pages/AcceptInvite";
 import Activity from "./pages/Activity";
 import BookDetail from "./pages/BookDetail";
+import Connected from "./pages/Connected";
 import FolderDetail from "./pages/FolderDetail";
 import Folders from "./pages/Folders";
 import Home from "./pages/Home";
@@ -16,6 +19,8 @@ import PlaylistDetail from "./pages/PlaylistDetail";
 import PodcastDetail from "./pages/PodcastDetail";
 import Podcasts from "./pages/Podcasts";
 import Settings from "./pages/Settings";
+import SuperAdmin from "./pages/SuperAdmin";
+import Welcome from "./pages/Welcome";
 import Yoto from "./pages/Yoto";
 import { clearUserCaches } from "./pwa";
 import type { Session } from "./types";
@@ -23,6 +28,7 @@ import type { Session } from "./types";
 export default function App() {
   const qc = useQueryClient();
   const session = useQuery({ queryKey: ["session"], queryFn: () => api.get<Session>("/auth/session"), staleTime: Infinity });
+  const location = useLocation();
 
   useEffect(() => {
     const onUnauthorized = () => qc.invalidateQueries({ queryKey: ["session"] });
@@ -36,6 +42,9 @@ export default function App() {
     if (signedOut) void clearUserCaches();
   }, [signedOut]);
 
+  // The end of a sign-in on another site; it needs nothing else from the app.
+  if (location.pathname === "/connected") return <Connected />;
+
   if (session.isLoading) {
     return (
       <div style={{ display: "grid", placeItems: "center", height: "100vh", color: "var(--ink-muted)" }}>
@@ -47,8 +56,17 @@ export default function App() {
   return (
     <ToastProvider>
       <AppStatus />
+      {session.data?.user && <ImpersonationBar user={session.data.user} />}
       {!session.data?.authenticated ? (
-        <Login />
+        <Routes>
+          <Route path="/invite/:token" element={<AcceptInvite />} />
+          <Route path="*" element={<Login />} />
+        </Routes>
+      ) : location.pathname === "/welcome" ? (
+        <Welcome />
+      ) : !session.data.user!.onboarded ? (
+        // Someone new starts on the welcome wizard (it can be skipped).
+        <Navigate to="/welcome" replace />
       ) : (
         <Shell user={session.data.user!}>
           <Routes>
@@ -63,6 +81,7 @@ export default function App() {
             <Route path="/yoto/playlists/:id" element={<PlaylistDetail />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/superadmin" element={<SuperAdmin />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Shell>

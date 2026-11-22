@@ -15,7 +15,7 @@ A private family audio library at **https://audio.benlocher.com**. It does six t
 
 | Layer | Choice |
 |---|---|
-| API | Django 6.1 + Django Ninja, session auth (no sign-up; users are created on the server) |
+| API | Django 6.1 + Django Ninja, session auth (no open sign-up; super admins invite people by email) |
 | Database | PostgreSQL, both locally and in production |
 | Background work | Celery + Redis. The thread pool works because the heavy lifting runs in ffmpeg subprocesses |
 | Frontend | React 19 + TypeScript + Vite, TanStack Query, lucide icons |
@@ -32,6 +32,23 @@ Research notes behind the integrations are in [`docs/research/`](docs/research/)
 The server already runs Postgres. Celery workers write job progress at the same time as web requests, and SQLite's single writer lock gets in the way of that. Using Postgres locally too keeps development the same as production.
 
 ## Decisions worth knowing
+
+**People and libraries (households).** Everything belongs to a *library*: its Audible and Yoto accounts, podcasts, folders, Yoto cards, AI keys and audio preferences. People in the same library share all of it; different libraries never see each other's books, cards, jobs or audio files (`/api/media/` checks the file's library). Ben and Elizabeth share the first library and are *super admins*.
+- **Inviting.** Settings → People → **Invite someone** takes a name and email and asks one question: a library of their own (another family) or a share of yours (someone in your home). For their own library you can also let them use your AI keys; they can use them but never see them, and you can switch it off per library later. Invitations are emailed when `EMAIL_HOST` is set; either way the dialog shows the link to copy, plus a button that opens a pre-written email in your mail app. Links last 14 days and work once; inviting the same address again replaces the old link.
+- **Accepting.** The link opens a page where they type their name and a password, and they're signed in. They sign in later with their email (older logins can still use a username).
+- **Welcome wizard** (`/welcome`). New people land on it until they finish or skip it. It starts by asking what they want to do (Yoto cards, Ask about books, Listen here) and where their audio comes from (Audible, podcasts, their own files), then shows only the steps those need: Audible (any number of accounts, each labelled by whose it is, with the two-step Amazon sign-in, a paste button and plain-language help), following a podcast, Yoto (one button, back to the wizard), and the AI key for Ask, which says it's only needed for Transcribe and Ask and suggests one OpenAI key with click-by-click steps. It ends with a summary and a first thing to do. Anything already connected shows as done. Rerun it from Settings → Your setup, or open one step, e.g. `/welcome?step=ai`.
+- **A focused app.** The choices are stored per person (`Member.features`; empty means everything). The menu shows only the chosen parts (Podcasts, Local folders and Yoto cards hide when not picked), Home leads with "Make Yoto cards" and/or "Ask about a book" and only shows the Yoto rail or Continue listening when picked, and Ask buttons stay hidden unless Ask was picked or an AI key exists. Home also shows a short "Finish setting up" card for anything chosen but not yet connected. Settings → Your setup toggles each one; nothing is deleted when it's off.
+- **Super admin dashboard** (`/superadmin`, in the menu for super admins): totals; invitations waiting, expired and accepted (copy link, resend, cancel); and for every library its people (last sign-in, still setting up, what they picked), whose AI keys it uses, Audible accounts, books, podcasts, folders, Yoto cards, storage, hours transcribed with an estimated cost, Ask answers and tokens, and failed background jobs.
+- **View as** (dashboard or Settings → People): a super admin signs in as that person to see exactly what they see, with a bar across the top and "Back to my account". It doesn't change their "last signed in", it's logged, and what you change while viewing is changed for them.
+- **Connecting without leaving the app.** Sign-ins on other sites open in a small popup window that closes itself when it's done: the other site sends people back to `/connected`, which tells the app's window over a `BroadcastChannel` (sign-in pages often cut the popup's link to its opener) and closes. If popups are blocked, the whole tab goes and `/connected` brings it back to where it started.
+  - **OpenRouter** (`core/connect.py`) is the no-copy-paste way to set up Ask and Transcribe: its [OAuth PKCE sign-in](https://openrouter.ai/docs/use-cases/oauth-pkce) hands this app a key of the person's own (no app registration needed), saved to their library like any other key. It covers Claude, GPT and Gemini for Ask and Whisper (`openai/whisper-large-v3`) for transcription. Its transcription is treated as text-only, so audio goes in 2-minute pieces and each piece's start is the timestamp.
+  - **Yoto** uses the same popup.
+  - **Pasting a key** (OpenAI and the rest) opens the key page beside the app and, when the person comes back to the window, picks a copied `sk-…` key up from the clipboard (the browser may ask once); a Paste button covers browsers that don't allow that.
+  - **Audible** still needs the copy-the-address step: Amazon only returns sign-ins to its own `maplanding` page, which another site can't read.
+  - **OpenAI's own "Sign in with ChatGPT"** isn't used: for a hosted site it needs OpenAI's approval as a partner, and it doesn't cover transcription.
+- **The Yoto developer app** is the site's, not a library's: a super admin sets it up once (Settings → Yoto), then everyone connects their own Yoto account with one button.
+- **Server keys.** AI keys in the server's environment (`OPENAI_API_KEY`...) belong to the first library only, unless it shares its keys with another.
+- **Migrating.** The `households` migrations put everything that existed into one library shared by all existing logins (who skip the wizard), and make users named Ben or Elizabeth super admins.
 
 **Bitrate.** MP3 at **64 kbps mono** is the built-in default; the one saved in Settings wins, and every bitrate picker starts on it. It's clear for speech and fine for light music. 48 kbps is still good for audiobooks, and 32 kbps starts to sound thin. Mono doesn't make a file smaller at the same bitrate (the size is bitrate × time). It makes speech clearer at low bitrates, because every bit goes to one channel. Presets run from 32 to 128 kbps.
 
@@ -114,9 +131,10 @@ When the server can see your disk (local dev), folder import can also copy strai
 
 | What | Where it comes from |
 |---|---|
-| Audible | **Add account** for each person, then **Sign in** |
-| AI provider keys | Any of Claude (Anthropic), OpenAI, Gemini, Grok (xAI) and Groq. Each key unlocks that provider's current models, listed live from its API. Claude and Grok are Ask-only; Anthropic and xAI offer no speech-to-text in this app |
-| Yoto | Create a **confidential** app at [dashboard.yoto.dev](https://dashboard.yoto.dev). Register the callback `https://audio.benlocher.com/api/yoto/callback` (and `http://localhost:5182/api/yoto/callback` for dev). Paste the client ID and secret into Settings, then **Connect a Yoto account** |
+| Audible | **Add account** for each person, then **Sign in** (new people do this in the welcome wizard) |
+| AI provider keys (per library, optional) | **Connect with OpenRouter** (one click, no key to copy), or any of Claude (Anthropic), OpenAI, Gemini, Grok (xAI) and Groq. Each key unlocks that provider's current models, listed live from its API. Claude and Grok are Ask-only; Anthropic and xAI offer no speech-to-text in this app |
+| Yoto | A super admin creates a **confidential** app at [dashboard.yoto.dev](https://dashboard.yoto.dev) once. Register the callback `https://audio.benlocher.com/api/yoto/callback` (and `http://localhost:5182/api/yoto/callback` for dev). Paste the client ID and secret into Settings → Yoto. Then anyone can **Connect your Yoto account** |
+| Invitation email (optional) | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` in the environment. Without them, invite links are copied and sent by hand |
 
 Keys can also come from the environment (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `GROQ_API_KEY`, `YOTO_CLIENT_ID`, `YOTO_CLIENT_SECRET`).
 
@@ -147,7 +165,7 @@ To deploy:
 git push dailyoffice main
 ```
 
-To create a login on the server:
+People normally join by invitation (Settings → People). To create a login on the server instead:
 
 ```bash
 ssh -t dailyoffice 'cd /var/www/audio.benlocher.com/backend && set -a && . /etc/audio/audio.env && set +a && ../.venv/bin/python manage.py createsuperuser'

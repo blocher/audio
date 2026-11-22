@@ -1,6 +1,12 @@
+from types import SimpleNamespace
+
 from core.models import Track
 from podcasts.api import _one, list_podcasts
 from podcasts.models import Episode, Podcast
+
+
+def as_member(household):
+    return SimpleNamespace(household_id=household.pk)
 
 
 def _episode(show, n, season, saved):
@@ -12,13 +18,13 @@ def _episode(show, n, season, saved):
     return ep
 
 
-def test_seasons_in_order_with_unnumbered_last(db):
+def test_seasons_in_order_with_unnumbered_last(db, household):
     show = Podcast.objects.create(feed_url="https://example.com/feed", title="Show")
     _episode(show, 1, None, True)  # trailer
     _episode(show, 2, 2, True)
     _episode(show, 3, 1, True)
     _episode(show, 4, 1, False)
-    seasons = _one(show.pk).seasons
+    seasons = _one(as_member(household), show.pk).seasons
     assert [(s["season"], s["episode_count"], s["downloaded_count"]) for s in seasons] == [
         (1, 2, 1),
         (2, 1, 1),
@@ -27,19 +33,19 @@ def test_seasons_in_order_with_unnumbered_last(db):
     assert seasons[0]["downloaded_duration_ms"] == 60_000
 
 
-def test_show_without_season_data_is_one_season(db):
+def test_show_without_season_data_is_one_season(db, household):
     show = Podcast.objects.create(feed_url="https://example.com/feed", title="Show")
     _episode(show, 1, None, True)
     _episode(show, 2, None, False)
-    [p] = list_podcasts(None)
+    [p] = list_podcasts(as_member(household))
     assert [(s["season"], s["episode_count"], s["downloaded_count"]) for s in p.seasons] == [(None, 2, 1)]
 
 
-def test_season_size_counts_downsized_files(db):
+def test_season_size_counts_downsized_files(db, household):
     show = Podcast.objects.create(feed_url="https://example.com/feed", title="Show")
     a = _episode(show, 1, 1, True)
     _episode(show, 2, 1, True)
     Track.objects.filter(episode=a).update(size_bytes=30, optimized_size_bytes=10)
     Track.objects.exclude(episode=a).update(size_bytes=20)
-    [season] = _one(show.pk).seasons
+    [season] = _one(as_member(household), show.pk).seasons
     assert season["downloaded_bytes"] == 30

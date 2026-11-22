@@ -31,24 +31,48 @@ def decrypt_json(token: str) -> dict:
         raise ImproperlyConfigured("Stored credentials cannot be decrypted") from exc
 
 
-def load_credential(service: str) -> dict:
+# The whole site's, not one household's: the Yoto developer app every household signs in through.
+SITE_SERVICES = {"yoto"}
+_CURRENT = object()
+
+
+def _owner(service: str, household_id) -> int | None:
+    if service in SITE_SERVICES:
+        return None
+    if household_id is _CURRENT:
+        from .tenancy import current_household_id
+
+        return current_household_id()
+    return household_id
+
+
+def load_credential(service: str, household_id=_CURRENT) -> dict:
+    """A service's stored values: the site's for site services, else the (current) household's."""
     from .models import Credential
 
-    row = Credential.objects.filter(service=service).first()
+    owner = _owner(service, household_id)
+    if owner is None and service not in SITE_SERVICES:
+        return {}
+    row = Credential.objects.filter(service=service, household_id=owner).first()
     return decrypt_json(row.encrypted_payload) if row else {}
 
 
-def save_credential(service: str, values: dict) -> dict:
+def save_credential(service: str, values: dict, household_id=_CURRENT) -> dict:
     """Merge non-empty values into the stored secret; an explicit None clears a key."""
     from .models import Credential
 
-    merged = load_credential(service)
+    owner = _owner(service, household_id)
+    if owner is None and service not in SITE_SERVICES:
+        raise ValueError(f"No household to save {service} settings for")
+    merged = load_credential(service, owner)
     for key, value in values.items():
         if value is None:
             merged.pop(key, None)
         elif value != "":
             merged[key] = value
-    Credential.objects.update_or_create(service=service, defaults={"encrypted_payload": encrypt_json(merged)})
+    Credential.objects.update_or_create(
+        service=service, household_id=owner, defaults={"encrypted_payload": encrypt_json(merged)}
+    )
     return merged
 
 

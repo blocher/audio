@@ -61,13 +61,20 @@ def redirect_uri() -> str:
 # ---------- OAuth ----------
 
 
-def authorize_url(account: YotoAccount) -> str:
+def authorize_url(account: YotoAccount, return_to: str = "", popup: bool = False) -> str:
+    """Yoto's sign-in page. ``return_to`` is the page here to come back to afterwards (default: Yoto cards)."""
     client_id, _ = app_credentials()
     state = secrets.token_urlsafe(24)
     # Yoto's login server rejects /authorize without PKCE, even for confidential clients with a secret.
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    account.pending_login = {"state": state, "code_verifier": verifier, "created": time.time()}
+    account.pending_login = {
+        "state": state,
+        "code_verifier": verifier,
+        "created": time.time(),
+        "return_to": return_to if return_to.startswith("/") and not return_to.startswith("//") else "",
+        "popup": popup,
+    }
     account.save(update_fields=["pending_login", "updated_at"])
     query = {
         "audience": AUDIENCE,

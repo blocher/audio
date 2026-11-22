@@ -42,8 +42,10 @@ def fmt_time(ms: int) -> str:
     return f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
 
 
-def work_tracks(book_id=None, episode_id=None, collection_id=None):
-    qs = Track.objects.all()
+def work_tracks(book_id=None, episode_id=None, collection_id=None, household_id=None):
+    from core.tenancy import current_household_id
+
+    qs = Track.objects.for_household(household_id or current_household_id())
     if book_id:
         qs = qs.filter(book_id=book_id)
     elif episode_id:

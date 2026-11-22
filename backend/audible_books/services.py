@@ -34,12 +34,16 @@ def book_dir(book: Book) -> Path:
 
 
 def my_account_id(user) -> int | None:
-    """The Audible account whose positions this login sees: the one they picked, else the first connected one."""
-    if user is not None and user.is_authenticated:
-        picked = Listener.objects.filter(user=user).values_list("account_id", flat=True).first()
-        if picked:
-            return picked
-    accounts = AudibleAccount.objects.order_by("name", "pk")
+    """The Audible account whose positions this login sees: the one they picked, else their household's first
+    connected one."""
+    from core.tenancy import membership
+
+    if user is None or not user.is_authenticated:
+        return None
+    accounts = AudibleAccount.objects.filter(household_id=membership(user).household_id).order_by("name", "pk")
+    picked = Listener.objects.filter(user=user, account__in=accounts).values_list("account_id", flat=True).first()
+    if picked:
+        return picked
     connected = accounts.exclude(encrypted_auth="").values_list("pk", flat=True).first()
     return connected or accounts.values_list("pk", flat=True).first()
 
@@ -84,7 +88,10 @@ def sync_library(account: AudibleAccount) -> dict:
         listening = {k: fields.pop(k) for k in ENTRY_FIELDS}
         # Family sharing puts the same book in both libraries; it's one book with an entry in each.
         book, was_created = Book.objects.update_or_create(
-            asin=asin, defaults=fields, create_defaults={**fields, "account": account}
+            household_id=account.household_id,
+            asin=asin,
+            defaults=fields,
+            create_defaults={**fields, "account": account},
         )
         LibraryEntry.objects.update_or_create(account=account, book=book, defaults=listening)
         created += was_created

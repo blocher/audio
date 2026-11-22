@@ -3184,3 +3184,538 @@ code {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ───────── Welcome wizard ───────── */
+
+.welcome {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 12% 0%, rgb(167 82 54 / 0.12), transparent 40%),
+    radial-gradient(circle at 100% 100%, rgb(111 128 82 / 0.14), transparent 45%),
+    var(--paper);
+  padding: calc(18px + var(--safe-top)) 16px calc(40px + var(--safe-bottom));
+}
+
+.welcome .brand {
+  color: var(--ink);
+}
+
+.welcome-top {
+  max-width: 760px;
+  margin: 0 auto 22px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.welcome-progress {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+}
+
+.welcome-progress li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.welcome-progress li + li::before {
+  content: "";
+  width: 16px;
+  height: 1px;
+  background: var(--paper-edge);
+  margin-right: 2px;
+}
+
+.welcome-progress .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--paper-edge);
+  background: var(--paper-raised);
+}
+
+.welcome-progress li.done .dot {
+  background: var(--sage);
+  border-color: var(--sage);
+}
+
+.welcome-progress li.current {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.welcome-progress li.current .dot {
+  border-color: var(--terracotta);
+  background: var(--terracotta);
+  box-shadow: 0 0 0 3px var(--terracotta-soft);
+}
+
+.welcome-card {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: clamp(22px, 5vw, 44px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.welcome-card h1 {
+  font-size: clamp(1.7rem, 4.6vw, 2.4rem);
+  margin-bottom: 10px;
+}
+
+.welcome-card h2 {
+  font-size: var(--text-xl);
+  margin: 26px 0 14px;
+}
+
+.welcome-lede {
+  font-size: var(--text-lg);
+  color: var(--ink-soft);
+  max-width: 58ch;
+  margin: 0 0 22px;
+  line-height: 1.5;
+}
+
+.welcome-small {
+  font-size: var(--text-sm);
+  margin: 16px 0 0;
+}
+
+.welcome-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: var(--terracotta-soft);
+  color: var(--terracotta-strong);
+  margin-bottom: 16px;
+}
+
+.welcome-card .steps {
+  width: 100%;
+}
+
+.welcome-card > .stack {
+  width: 100%;
+}
+
+.welcome-nav {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid var(--paper-line);
+}
+
+.welcome-done {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: var(--sage-soft);
+  color: var(--sage-strong);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.welcome-details {
+  width: 100%;
+}
+
+.welcome-details summary {
+  cursor: pointer;
+  color: var(--terracotta);
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.welcome-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.welcome-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.welcome-checklist li.ok {
+  color: var(--ink);
+}
+
+.welcome-checklist li.ok svg {
+  color: var(--sage);
+}
+
+.use-choices {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.use-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  padding: 18px;
+  border: 1.5px solid var(--paper-line);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--ease),
+    transform 0.15s var(--ease),
+    background 0.15s var(--ease);
+}
+
+.use-choice strong {
+  color: var(--ink);
+  font-size: var(--text-lg);
+}
+
+.use-choice > span:last-child {
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.use-choice:hover:not(:disabled) {
+  border-color: var(--terracotta);
+  background: var(--paper-hover);
+  transform: translateY(-1px);
+}
+
+.use-choice.picked {
+  border-color: var(--terracotta);
+  background: var(--terracotta-soft);
+}
+
+.use-choice:focus-visible {
+  outline: 3px solid var(--terracotta-soft);
+  outline-offset: 2px;
+}
+
+.use-icon {
+  color: var(--terracotta);
+  margin-bottom: 4px;
+}
+
+@media (max-width: 640px) {
+  .welcome-progress .label {
+    display: none;
+  }
+  .welcome-progress li.current .label {
+    display: inline;
+  }
+  .welcome-top {
+    gap: 10px;
+  }
+  .welcome-progress {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+  .welcome-nav .btn.lg {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* A text-looking button for secondary choices ("Skip", "Use a different company"). */
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--terracotta);
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: var(--terracotta-strong);
+  text-decoration: underline;
+}
+
+/* An input with a small button inside its right edge (copy, show password). */
+.input-with-button {
+  position: relative;
+  display: flex;
+}
+
+.input-with-button .input {
+  flex: 1;
+  padding-right: 44px;
+}
+
+.input-with-button button {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.input-with-button button:hover {
+  background: var(--paper-sunk);
+  color: var(--ink);
+}
+
+/* ───────── People & setup ───────── */
+
+.household-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+.household-head strong {
+  color: var(--ink);
+}
+
+.admin-details summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.setup-nudge {
+  display: flex;
+  align-items: center;
+  gap: 14px 18px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+  border-color: var(--honey-soft);
+  background: linear-gradient(90deg, var(--honey-soft), var(--paper-raised) 70%);
+}
+
+.setup-nudge-items {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.setup-nudge-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-line);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+
+.setup-nudge-item:hover {
+  border-color: var(--terracotta);
+}
+
+.welcome-top > .link-btn {
+  margin-left: auto;
+}
+
+/* ───────── Viewing as someone else ───────── */
+
+.impersonation-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(8px + var(--safe-top)) 16px 8px;
+  background: var(--honey);
+  color: #2b1c06;
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow);
+}
+
+.impersonation-bar span {
+  flex: 1;
+  min-width: 0;
+}
+
+.impersonation-bar button {
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  background: #2b1c06;
+  color: var(--honey-soft);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+body:has(.impersonation-bar) .shell,
+body:has(.impersonation-bar) .welcome {
+  padding-top: 52px;
+}
+
+@media (max-width: 860px) {
+  body:has(.impersonation-bar) .sidebar {
+    top: 52px;
+  }
+}
+
+/* Checkbox tiles for picking features (Settings → Your setup, welcome wizard). */
+.feature-toggles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.feature-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1.5px solid var(--paper-line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--paper);
+}
+
+.feature-toggle.on {
+  border-color: var(--terracotta);
+  background: var(--terracotta-soft);
+}
+
+.feature-toggle input {
+  accent-color: var(--terracotta);
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+}
+
+.feature-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.feature-toggle small {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+/* The wizard's first step: tiles you can tick several of. */
+.use-choice {
+  position: relative;
+}
+
+.use-check {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  color: var(--ink-faint);
+}
+
+.use-choice.picked .use-check {
+  color: var(--terracotta);
+}
+
+.use-choices.compact .use-choice {
+  padding: 14px 16px;
+}
+
+.use-choices.compact .use-choice strong {
+  font-size: var(--text-md);
+}
+
+.welcome-form {
+  width: 100%;
+}
+
+/* ───────── Super admin dashboard ───────── */
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.admin-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+  border: 1px solid var(--paper-line);
+}
+
+.admin-stat-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+
+.admin-stat strong {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.admin-stat small {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.admin-usage {
+  grid-template-columns: minmax(120px, auto) 1fr;
+}
+
+.panel-head .tabs {
+  margin-left: auto;
+}

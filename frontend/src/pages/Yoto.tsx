@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { connectInPopup } from "../connect";
 import { BookOpen, CheckCircle2, CloudUpload, Folder, Library, Link2, Mic, Plus, Search, SquareStack } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -7,6 +8,7 @@ import CardPlanner from "../components/CardPlanner";
 import { Button, Empty, Meter, Modal, Note, PageHead, Spinner, errorText, useToast } from "../components/ui";
 import { bytes, duration, mb, relative } from "../format";
 import { useAction, useJobs } from "../hooks/queries";
+import { useMe } from "../hooks/session";
 import type { Book, Collection, Job, PackGroup, Playlist, Podcast, PodcastDetail, SettingsData, Track, YotoAccount } from "../types";
 import { seasonGroups, seasonKey, seasonLabel } from "../seasons";
 import { JobLine } from "./BookDetail";
@@ -26,13 +28,23 @@ export function statusPill(status: Playlist["status"]) {
   return <span className={`pill ${tone}`}>{status === "synced" && <CheckCircle2 size={11} />} {label}</span>;
 }
 
+/** Sign in to Yoto in a popup window; the app stays where it is and refreshes when it's done. */
 export function useConnectYoto() {
   const toast = useToast();
+  const qc = useQueryClient();
   return async () => {
     try {
-      const { authorize_url } = await api.post<{ authorize_url: string }>("/yoto/accounts", { name: "Family" });
-      window.location.href = authorize_url;
+      const { authorize_url } = await api.post<{ authorize_url: string }>("/yoto/accounts", {
+        name: "Family",
+        popup: true,
+        return_to: window.location.pathname,
+      });
+      const result = await connectInPopup(authorize_url, "yoto");
+      for (const key of ["yoto-accounts", "onboarding", "playlists"]) qc.invalidateQueries({ queryKey: [key] });
+      if (result.error) toast(`Yoto sign-in didn't finish: ${result.error}`, "error");
+      else toast("Yoto account connected");
     } catch (e) {
+      if (e instanceof Error && e.message === "closed") return; // they closed the window
       toast(errorText(e), "error");
     }
   };
@@ -42,11 +54,13 @@ export default function Yoto() {
   const [params, setParams] = useSearchParams();
   const toast = useToast();
   const connect = useConnectYoto();
+  const isAdmin = !!useMe()?.is_admin;
   const accounts = useQuery({ queryKey: ["yoto-accounts"], queryFn: () => api.get<YotoAccount[]>("/yoto/accounts") });
   const playlists = useQuery({ queryKey: ["playlists"], queryFn: () => api.get<Playlist[]>("/yoto/playlists") });
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<SettingsData>("/settings") });
   const jobs = useJobs();
-  const [picking, setPicking] = useState(false);
+  // ?new=1 (from the welcome wizard) opens straight on "pick what goes on the cards".
+  const [picking, setPicking] = useState(params.get("new") === "1");
   const [connectError, setConnectError] = useState(params.get("error") ?? "");
   const [planGroups, setPlanGroups] = useState<PackGroup[] | null>(null);
   const sync = useAction((body: { batch?: string; playlist_ids?: number[] }) => api.post<Job>("/yoto/sync", body), [["playlists"]]);
@@ -54,10 +68,11 @@ export default function Yoto() {
   useEffect(() => {
     if (params.get("connected")) toast("Yoto account connected");
     if (params.get("error")) setConnectError(params.get("error")!);
-    if (params.get("connected") || params.get("error")) {
+    if (params.get("connected") || params.get("error") || params.get("new")) {
       const next = new URLSearchParams(params);
       next.delete("connected");
       next.delete("error");
+      next.delete("new");
       setParams(next, { replace: true });
     }
   }, [params, setParams, toast]);
@@ -75,7 +90,7 @@ export default function Yoto() {
     return list;
   }, [playlists.data, highlight]);
   const syncJobs = (jobs.data ?? []).filter((j) => j.kind === "yoto_sync" && (j.status === "running" || j.status === "queued"));
-  const hasYotoApp = !!settings.data?.yoto.client_id;
+  const hasYotoApp = !!settings.data?.capabilities.yoto_ready;
 
   return (
     <>
@@ -104,13 +119,17 @@ export default function Yoto() {
           <div style={{ flex: 1, minWidth: 240 }}>
             <h3 style={{ marginBottom: 4 }}>Connect your Yoto account</h3>
             <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
-              {hasYotoApp ? "You'll sign in on Yoto's site and come straight back." : "First add your Yoto app's client ID and secret in Settings (from dashboard.yoto.dev)."}
+              {hasYotoApp
+                ? "You'll sign in on Yoto's site and come straight back. You can still make cards first and send them later."
+                : isAdmin
+                  ? "First add the site's Yoto app in Settings (from dashboard.yoto.dev); then everyone can connect with one button."
+                  : "Yoto isn't switched on for this site yet. Ask a super admin to set it up."}
             </p>
           </div>
           {hasYotoApp ? (
             <Button variant="sage" icon={<Link2 size={16} />} onClick={connect}>Connect Yoto</Button>
           ) : (
-            <Link className="btn" to="/settings#yoto">Open Settings</Link>
+            isAdmin && <Link className="btn" to="/settings#yoto">Open Settings</Link>
           )}
         </div>
       )}

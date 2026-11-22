@@ -12,7 +12,8 @@ from ninja.errors import HttpError
 from core import packing
 from core.api import JobOut, PackIn, TrackOut, build_groups, card_summary, pack_limits, run_pack
 from core.jobs import active_job, enqueue
-from core.models import Job
+from core.models import Job, Track
+from core.tenancy import household_id
 
 from . import client, services
 from .models import Playlist, PlaylistItem, YotoAccount
@@ -35,67 +36,82 @@ class AccountOut(Schema):
 
 @router.get("/accounts", response=list[AccountOut])
 def list_accounts(request):
-    return YotoAccount.objects.annotate(playlist_count=Count("playlists"))
+    return YotoAccount.objects.filter(household_id=household_id(request)).annotate(playlist_count=Count("playlists"))
 
 
 class AccountIn(Schema):
     name: str = "Family"
+    return_to: str = ""  # where to land after signing in, e.g. the welcome wizard
+    popup: bool = False  # signing in in a popup window, which closes itself afterwards
 
 
 @router.post("/accounts")
 def connect_account(request, payload: AccountIn):
     """Create (or reuse an unconnected) account and return the Yoto sign-in URL to send the browser to."""
-    account = YotoAccount.objects.filter(encrypted_tokens="").first() or YotoAccount.objects.create(
-        name=payload.name.strip() or "Family"
+    mine = YotoAccount.objects.filter(household_id=household_id(request))
+    account = mine.filter(encrypted_tokens="").first() or YotoAccount.objects.create(
+        household_id=household_id(request), name=payload.name.strip() or "Family"
     )
     try:
-        return {"authorize_url": client.authorize_url(account), "account_id": account.pk}
+        url = client.authorize_url(account, payload.return_to, payload.popup)
+        return {"authorize_url": url, "account_id": account.pk}
     except client.YotoError as exc:
         raise HttpError(400, str(exc)) from exc
 
 
 @router.post("/accounts/{account_id}/reconnect")
-def reconnect(request, account_id: int):
-    account = get_object_or_404(YotoAccount, pk=account_id)
+def reconnect(request, account_id: int, return_to: str = ""):
+    account = get_object_or_404(YotoAccount, pk=account_id, household_id=household_id(request))
     try:
-        return {"authorize_url": client.authorize_url(account), "account_id": account.pk}
+        return {"authorize_url": client.authorize_url(account, return_to), "account_id": account.pk}
     except client.YotoError as exc:
         raise HttpError(400, str(exc)) from exc
 
 
-def _back_to_yoto(**params) -> HttpResponseRedirect:
-    return HttpResponseRedirect(f"/yoto?{urlencode(params)}")
+def _back_to_yoto(return_to: str = "", popup: bool = False, **params) -> HttpResponseRedirect:
+    if popup:
+        from core.connect import finished_page
+
+        return finished_page("yoto", True, return_to or "/yoto", **params)
+    page = return_to or "/yoto"
+    joiner = "&" if "?" in page else "?"
+    return HttpResponseRedirect(f"{page}{joiner}{urlencode(params)}")
 
 
 @router.get("/callback")
 def oauth_callback(request, code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    mine = YotoAccount.objects.filter(household_id=household_id(request))
+    account = next((a for a in mine if state and (a.pending_login or {}).get("state") == state), None)
+    pending = (account.pending_login or {}) if account else {}
+    return_to, popup = pending.get("return_to", ""), bool(pending.get("popup"))
     if error:
         if "pre-approved" in error_description:
             scopes = ", ".join(client.SCOPES.split())
             return _back_to_yoto(
+                return_to,
+                popup,
                 error=f"Your Yoto app isn't allowed all the scopes it needs. At dashboard.yoto.dev, open the app, "
-                f"tick {scopes}, save, then connect again."
+                f"tick {scopes}, save, then connect again.",
             )
-        return _back_to_yoto(error=error_description or error)
-    account = next((a for a in YotoAccount.objects.all() if (a.pending_login or {}).get("state") == state), None)
+        return _back_to_yoto(return_to, popup, error=error_description or error)
     if account is None:
         return _back_to_yoto(error="Sign-in expired; try again")
     try:
         client.finish_authorize(account, code, state)
     except client.YotoError as exc:
-        return _back_to_yoto(error=str(exc))
-    return _back_to_yoto(connected=1)
+        return _back_to_yoto(return_to, popup, error=str(exc))
+    return _back_to_yoto(return_to, popup, connected=1)
 
 
 @router.delete("/accounts/{account_id}")
 def delete_account(request, account_id: int):
-    get_object_or_404(YotoAccount, pk=account_id).delete()
+    get_object_or_404(YotoAccount, pk=account_id, household_id=household_id(request)).delete()
     return {"ok": True}
 
 
 @router.get("/accounts/{account_id}/cards")
 def remote_cards(request, account_id: int):
-    account = get_object_or_404(YotoAccount, pk=account_id)
+    account = get_object_or_404(YotoAccount, pk=account_id, household_id=household_id(request))
     try:
         with client.Api(account) as api:
             cards = api.my_cards()
@@ -142,6 +158,12 @@ def icons(request):
 
 
 # ---------- playlists ----------
+
+
+def _account(request, account_id: int | None) -> YotoAccount | None:
+    if not account_id:
+        return None
+    return YotoAccount.objects.filter(pk=account_id, household_id=household_id(request)).first()
 
 
 class ItemOut(Schema):
@@ -210,7 +232,7 @@ def with_totals(playlist: Playlist) -> Playlist:
 
 @router.get("/playlists", response=list[PlaylistOut])
 def list_playlists(request, batch: str = ""):
-    qs = Playlist.objects.all()
+    qs = Playlist.objects.filter(household_id=household_id(request))
     if batch:
         qs = qs.filter(batch=batch)
     return [with_totals(p) for p in qs]
@@ -226,9 +248,12 @@ class PlaylistIn(Schema):
 
 @router.post("/playlists", response=PlaylistDetailOut)
 def create_playlist(request, payload: PlaylistIn):
-    account = YotoAccount.objects.filter(pk=payload.account_id).first() if payload.account_id else None
+    account = _account(request, payload.account_id)
+    mine = Track.objects.for_household(household_id(request))
+    track_ids = list(mine.filter(pk__in=payload.track_ids).values_list("pk", flat=True))
+    track_ids.sort(key=payload.track_ids.index)
     playlist = services.create_playlist(
-        payload.title, payload.track_ids, account, payload.cover_url, author=payload.author
+        payload.title, track_ids, account, payload.cover_url, author=payload.author, household_id=household_id(request)
     )
     return with_totals(playlist)
 
@@ -247,11 +272,10 @@ def create_from_pack(request, payload: FromPackIn):
     cards, limits = run_pack(payload)
     if not cards:
         raise HttpError(400, "Nothing to put on a card")
-    account = YotoAccount.objects.filter(pk=payload.account_id).first() if payload.account_id else None
+    account = _account(request, payload.account_id)
     playlists = services.create_from_cards(cards, account, payload.cover_url, payload.name)
     job = None
     if payload.downsize_first and payload.kbps:
-        from core.models import Track
         from core.tasks import optimize_tracks_task
 
         ids = sorted({i.track_id for c in cards for i in c.items})
@@ -277,7 +301,7 @@ def create_from_pack(request, payload: FromPackIn):
 
 @router.get("/playlists/{pid}", response=PlaylistDetailOut)
 def get_playlist(request, pid: int):
-    return with_totals(get_object_or_404(Playlist, pk=pid))
+    return with_totals(get_object_or_404(Playlist, pk=pid, household_id=household_id(request)))
 
 
 class PlaylistPatch(Schema):
@@ -294,7 +318,7 @@ class PlaylistPatch(Schema):
 
 @router.patch("/playlists/{pid}", response=PlaylistDetailOut)
 def update_playlist(request, pid: int, payload: PlaylistPatch):
-    playlist = get_object_or_404(Playlist, pk=pid)
+    playlist = get_object_or_404(Playlist, pk=pid, household_id=household_id(request))
     with transaction.atomic():
         for field in ("title", "description", "author", "icon", "use_optimized"):
             value = getattr(payload, field)
@@ -304,7 +328,7 @@ def update_playlist(request, pid: int, payload: PlaylistPatch):
             playlist.cover_url = payload.cover_url
             playlist.yoto_cover_url = ""
         if payload.account_id is not None:
-            playlist.account = YotoAccount.objects.filter(pk=payload.account_id).first()
+            playlist.account = _account(request, payload.account_id)
         playlist.save()
         if payload.item_ids is not None:
             keep = {i.pk: i for i in playlist.items.all()}
@@ -336,7 +360,9 @@ def _remove_from_yoto(playlist: Playlist) -> None:
     # A batch sync has no single target, so also catch a playlist that's mid-sync while any sync is running.
     batch_syncing = (
         playlist.status == Playlist.Status.SYNCING
-        and Job.objects.filter(kind="yoto_sync", status__in=[Job.Status.QUEUED, Job.Status.RUNNING]).exists()
+        and Job.objects.filter(
+            household_id=playlist.household_id, kind="yoto_sync", status__in=[Job.Status.QUEUED, Job.Status.RUNNING]
+        ).exists()
     )
     if active_job(playlist, "yoto_sync") or batch_syncing:
         raise HttpError(409, "This card is syncing to Yoto; wait for it to finish, then delete it.")
@@ -349,7 +375,7 @@ def _remove_from_yoto(playlist: Playlist) -> None:
 @router.delete("/playlists/{pid}")
 def delete_playlist(request, pid: int, remote: bool = False):
     """Delete the playlist here. With remote, delete its card from the Yoto account first."""
-    playlist = get_object_or_404(Playlist, pk=pid)
+    playlist = get_object_or_404(Playlist, pk=pid, household_id=household_id(request))
     if remote:
         _remove_from_yoto(playlist)
     playlist.delete()
@@ -359,7 +385,7 @@ def delete_playlist(request, pid: int, remote: bool = False):
 @router.delete("/playlists/{pid}/yoto", response=PlaylistDetailOut)
 def delete_from_yoto(request, pid: int):
     """Delete the card from the Yoto account but keep the playlist here as a draft."""
-    playlist = get_object_or_404(Playlist, pk=pid)
+    playlist = get_object_or_404(Playlist, pk=pid, household_id=household_id(request))
     _remove_from_yoto(playlist)
     return with_totals(playlist)
 
@@ -371,7 +397,7 @@ class SyncIn(Schema):
 
 @router.post("/sync", response=JobOut)
 def sync(request, payload: SyncIn):
-    qs = Playlist.objects.all()
+    qs = Playlist.objects.filter(household_id=household_id(request))
     if payload.batch:
         qs = qs.filter(batch=payload.batch)
     elif payload.playlist_ids:
@@ -381,7 +407,7 @@ def sync(request, payload: SyncIn):
     playlists = list(qs)
     if not playlists:
         raise HttpError(404, "No such playlists")
-    if not YotoAccount.objects.exclude(encrypted_tokens="").exists():
+    if not YotoAccount.objects.filter(household_id=household_id(request)).exclude(encrypted_tokens="").exists():
         raise HttpError(400, "Connect a Yoto account first")
     target = playlists[0] if len(playlists) == 1 else None
     if target and (job := active_job(target, "yoto_sync")):

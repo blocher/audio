@@ -1,11 +1,12 @@
 from django.db import models
 
-from core.models import TimeStamped
+from core.models import InHousehold, TimeStamped
 
 
-class Collection(TimeStamped):
+class Collection(InHousehold, TimeStamped):
     """A set of audio files imported from folders on a computer (uploaded, or read from disk in local dev)."""
 
+    household = models.ForeignKey("core.Household", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=300)
     description = models.TextField(blank=True)
     source_paths = models.JSONField(default=list, blank=True)
