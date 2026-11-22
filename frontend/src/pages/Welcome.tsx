@@ -190,7 +190,7 @@ function StartStep({ data, onNext }: { data: Onboarding; onNext: (features: Feat
   const qc = useQueryClient();
   // Someone new starts with the most common picks; someone rerunning setup sees what they chose before.
   const [picked, setPicked] = useState<Set<Feature>>(
-    new Set(data.features.length ? data.features : ["yoto", "listen", "audible", "podcasts", "folders"]),
+    new Set(data.features.length ? data.features : ["yoto", "listen", "audible", "folders"]),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
