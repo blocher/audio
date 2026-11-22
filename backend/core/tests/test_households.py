@@ -268,3 +268,40 @@ def test_only_super_admins_view_as_others(client, django_user_model):
     assert client.post(f"/api/superadmin/impersonate/{other.pk}").status_code == 403
     assert client.post("/api/superadmin/impersonate/stop").status_code == 400
     assert client.get("/api/superadmin/overview").status_code == 403
+
+
+def test_deleting_someone_completely_removes_their_library_and_files(client, ben, household, settings, tmp_path):
+    from transcripts.models import Conversation
+
+    settings.MEDIA_ROOT = tmp_path
+    gran = accept(invite(client, name="Gran")["invite"]["link"])
+    gran_user = Member.objects.get(user__email="gran@example.com").user
+    theirs = Member.objects.get(user=gran_user).household
+    save_credential("openai", {"api_key": "sk-gran-1234"}, theirs.pk)
+    folder = Collection.objects.create(household=theirs, name="Theirs")
+    (tmp_path / f"local/{folder.pk}").mkdir(parents=True)
+    (tmp_path / f"local/{folder.pk}/t.mp3").write_bytes(b"x")
+    Track.objects.create(source="local", collection=folder, title="T", file=f"local/{folder.pk}/t.mp3")
+    Conversation.objects.create(collection=folder, owner=gran_user)
+    ours = Collection.objects.create(household=household, name="Ours")
+    assert gran.get("/api/auth/session").json()["authenticated"]
+
+    done = client.delete(f"/api/users/{gran_user.pk}?everything=true").json()
+    assert done["library_deleted"] is True
+    assert not Household.objects.filter(pk=theirs.pk).exists()
+    assert not Collection.objects.filter(pk=folder.pk).exists() and Collection.objects.filter(pk=ours.pk).exists()
+    assert not (tmp_path / f"local/{folder.pk}").exists()
+    assert not Invite.objects.filter(email="gran@example.com").exists()
+    assert not Conversation.objects.exists()
+    assert gran.get("/api/auth/session").json()["authenticated"] is False
+
+
+def test_deleting_someone_completely_keeps_a_library_others_still_use(client, ben, household, django_user_model):
+    liz = accept(invite(client, email="liz@example.com", join_my_library=True)["invite"]["link"], name="Liz")
+    assert liz.get("/api/auth/session").json()["authenticated"]
+    liz_user = django_user_model.objects.get(email="liz@example.com")
+    folder = Collection.objects.create(household=household, name="Shared")
+    done = client.delete(f"/api/users/{liz_user.pk}?everything=true").json()
+    assert done["library_deleted"] is False and done["library_shared_with"] == ["Ben"]
+    assert Household.objects.filter(pk=household.pk).exists() and Collection.objects.filter(pk=folder.pk).exists()
+    assert client.delete(f"/api/users/{ben.pk}?everything=true").status_code == 400  # not yourself
