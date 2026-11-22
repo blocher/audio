@@ -5,4 +5,5 @@ export const PROVIDER_USES: Record<string, string> = {
   gemini: "Transcribe and Ask",
   xai: "Ask only",
   groq: "Transcribe and Ask · cheapest transcription",
+  openrouter: "Transcribe and Ask · many companies' models, one account",
 };

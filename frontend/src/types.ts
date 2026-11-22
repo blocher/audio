@@ -378,7 +378,7 @@ export interface SecretValue {
   source: "own" | "shared" | "server" | "";
 }
 
-export type ProviderId = "anthropic" | "openai" | "gemini" | "xai" | "groq";
+export type ProviderId = "anthropic" | "openai" | "gemini" | "xai" | "groq" | "openrouter";
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -394,6 +394,7 @@ export interface SettingsData {
   gemini: { api_key: SecretValue };
   xai: { api_key: SecretValue };
   groq: { api_key: SecretValue };
+  openrouter: { api_key: SecretValue };
   yoto: { client_id: string; client_secret: SecretValue };
   preferences: {
     default_kbps: number;

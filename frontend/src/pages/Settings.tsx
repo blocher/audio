@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { PACK_STRATEGIES } from "../components/CardPlanner";
+import { OpenRouterConnect } from "../components/AiSetup";
 import { AudibleSignInSteps } from "../components/AudibleConnect";
 import { PeopleSection } from "../components/People";
 import ModelPicker, { type ModelChoice } from "../components/ModelPicker";
@@ -431,13 +432,23 @@ function KeysSection({ data }: { data: SettingsData }) {
           const saved = data[p.id].api_key;
           return (
             <div key={p.id} className="stack" style={{ "--gap": "6px" } as React.CSSProperties}>
-              <SecretField label={`${p.label} key`} saved={saved} value={keys[p.id] ?? ""} onChange={(v) => setKeys((k) => ({ ...k, [p.id]: v }))} />
+              {p.id === "openrouter" && !saved.set ? (
+                // OpenRouter hands over a key when you sign in; no copying.
+                <div className="field">
+                  <span>{p.label}</span>
+                  <OpenRouterConnect compact />
+                </div>
+              ) : (
+                <SecretField label={`${p.label} key`} saved={saved} value={keys[p.id] ?? ""} onChange={(v) => setKeys((k) => ({ ...k, [p.id]: v }))} />
+              )}
               <div className="row" style={{ fontSize: "var(--text-xs)" }}>
                 <span className="muted">{PROVIDER_USES[p.id]}</span>
                 <span className="spacer" />
-                <a href={p.key_url} target="_blank" rel="noreferrer" style={{ color: "var(--terracotta)" }}>
-                  Get a key
-                </a>
+                {p.id !== "openrouter" && (
+                  <a href={p.key_url} target="_blank" rel="noreferrer" style={{ color: "var(--terracotta)" }}>
+                    Get a key
+                  </a>
+                )}
                 {saved.source === "own" && (
                   <button className="btn ghost sm" style={{ height: 22, padding: "0 6px" }} onClick={() => confirm(`Remove the ${p.label} key?`) && removeKey.mutate(p.id)}>
                     Remove

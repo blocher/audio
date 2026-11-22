@@ -9,6 +9,7 @@ import { Spinner, ToastProvider } from "./components/ui";
 import AcceptInvite from "./pages/AcceptInvite";
 import Activity from "./pages/Activity";
 import BookDetail from "./pages/BookDetail";
+import Connected from "./pages/Connected";
 import FolderDetail from "./pages/FolderDetail";
 import Folders from "./pages/Folders";
 import Home from "./pages/Home";
@@ -40,6 +41,9 @@ export default function App() {
   useEffect(() => {
     if (signedOut) void clearUserCaches();
   }, [signedOut]);
+
+  // The end of a sign-in on another site; it needs nothing else from the app.
+  if (location.pathname === "/connected") return <Connected />;
 
   if (session.isLoading) {
     return (

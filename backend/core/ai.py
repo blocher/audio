@@ -84,6 +84,19 @@ PROVIDERS: dict[str, Provider] = {
             preferred_chat=("openai/gpt-oss-120b",),
             preferred_stt=("whisper-large-v3-turbo",),
         ),
+        # One account for many companies' models. People connect it with a sign-in button (OAuth PKCE) that hands
+        # this app a key, so there's nothing to copy and paste.
+        Provider(
+            "openrouter",
+            "OpenRouter",
+            stt=True,
+            chat=True,
+            base_url="https://openrouter.ai/api/v1",
+            key_url="https://openrouter.ai/keys",
+            fallback_chat=("anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash"),
+            fallback_stt=("openai/whisper-large-v3",),
+            preferred_stt=("openai/whisper-large-v3",),
+        ),
     ]
 }
 
@@ -127,7 +140,11 @@ def openai_client(provider: str, timeout: float = 600):
     import openai
 
     p = PROVIDERS[provider]
-    return openai.OpenAI(api_key=api_key(provider), base_url=p.base_url, timeout=timeout, max_retries=4)
+    # OpenRouter credits requests to the app that sent them; these identify this one.
+    headers = {"HTTP-Referer": "https://audio.benlocher.com", "X-Title": "Audio"} if provider == "openrouter" else None
+    return openai.OpenAI(
+        api_key=api_key(provider), base_url=p.base_url, timeout=timeout, max_retries=4, default_headers=headers
+    )
 
 
 def anthropic_client():
@@ -185,6 +202,15 @@ def _list_groq() -> tuple[list[ModelInfo], list[ModelInfo]]:
         elif not re.search(r"orpheus|guard|tts|playai|compound", mid):
             chat.append(ModelInfo(mid, context=int(data.get("context_window") or 0)))
     return sorted(chat, key=lambda m: m.id), sorted(stt, key=lambda m: m.id, reverse=True)
+
+
+def _list_openrouter() -> tuple[list[ModelInfo], list[ModelInfo]]:
+    chat = []
+    for m in openai_client("openrouter", timeout=20).models.list():
+        data = m.model_dump() if hasattr(m, "model_dump") else dict(m)
+        chat.append(ModelInfo(data["id"], label=data.get("name") or "", context=int(data.get("context_length") or 0)))
+    # Its model list is text models; transcription runs on its Whisper.
+    return chat, [ModelInfo(i) for i in PROVIDERS["openrouter"].fallback_stt]
 
 
 def _list_gemini() -> tuple[list[ModelInfo], list[ModelInfo]]:
@@ -249,6 +275,12 @@ CHAT_TIERS: dict[str, list[tuple[str, list[str]]]] = {
         (BEST, [rf"grok-{_V}{_DATED}(?:-reasoning)?"]),
         (FAST, [rf"grok-{_V}{_DATED}-fast(?:-reasoning|-non-reasoning)?", rf"grok-{_V}{_DATED}-non-reasoning"]),
     ],
+    # OpenRouter names models "company/model"; offer one strong pick from each tier.
+    "openrouter": [
+        (BEST, [rf"anthropic/claude-opus-{_V}", rf"openai/gpt-{_V}-astra"]),
+        (BALANCED, [rf"anthropic/claude-sonnet-{_V}", rf"openai/gpt-{_V}-sol"]),
+        (FAST, [rf"google/gemini-{_V}-flash", rf"anthropic/claude-haiku-{_V}"]),
+    ],
     "groq": [
         (BEST, [r"openai/gpt-oss-120b"]),
         (BALANCED, [r"llama-3\.3-70b-versatile"]),
@@ -308,6 +340,7 @@ LISTERS = {
     "groq": _list_groq,
     "gemini": _list_gemini,
     "anthropic": _list_anthropic,
+    "openrouter": _list_openrouter,
 }
 
 

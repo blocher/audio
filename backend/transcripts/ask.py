@@ -281,6 +281,22 @@ def _groq(model: str, system: str, context: str, messages: list[dict]):
     yield "usage", usage
 
 
+def _openrouter(model: str, system: str, context: str, messages: list[dict]):
+    client = ai.openai_client("openrouter")
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": f"{system}\n\n{context}"}, *messages],
+        stream=True,
+    )
+    usage = {"model": model, "input": 0, "output": 0}
+    for chunk in stream:
+        if chunk.choices and (text := chunk.choices[0].delta.content):
+            yield "text", text
+        if u := getattr(chunk, "usage", None):  # sent once, on the last chunk
+            usage.update(input=_val(u, "prompt_tokens"), output=_val(u, "completion_tokens"))
+    yield "usage", usage
+
+
 def _val(obj, name: str) -> int:
     return int((obj.get(name) if isinstance(obj, dict) else getattr(obj, name, 0)) or 0)
 
@@ -311,6 +327,8 @@ def stream_model(provider: str, model: str, system: str, context: str, messages:
         return _responses(provider, model, system, context, messages)
     if provider == "groq":
         return _groq(model, system, context, messages)
+    if provider == "openrouter":
+        return _openrouter(model, system, context, messages)
     if provider == "gemini":
         return _gemini(model, system, context, messages)
     raise RuntimeError(f"Unknown provider {provider}")

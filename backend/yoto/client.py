@@ -61,7 +61,7 @@ def redirect_uri() -> str:
 # ---------- OAuth ----------
 
 
-def authorize_url(account: YotoAccount, return_to: str = "") -> str:
+def authorize_url(account: YotoAccount, return_to: str = "", popup: bool = False) -> str:
     """Yoto's sign-in page. ``return_to`` is the page here to come back to afterwards (default: Yoto cards)."""
     client_id, _ = app_credentials()
     state = secrets.token_urlsafe(24)
@@ -73,6 +73,7 @@ def authorize_url(account: YotoAccount, return_to: str = "") -> str:
         "code_verifier": verifier,
         "created": time.time(),
         "return_to": return_to if return_to.startswith("/") and not return_to.startswith("//") else "",
+        "popup": popup,
     }
     account.save(update_fields=["pending_login", "updated_at"])
     query = {

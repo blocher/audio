@@ -42,6 +42,7 @@ def list_accounts(request):
 class AccountIn(Schema):
     name: str = "Family"
     return_to: str = ""  # where to land after signing in, e.g. the welcome wizard
+    popup: bool = False  # signing in in a popup window, which closes itself afterwards
 
 
 @router.post("/accounts")
@@ -52,7 +53,8 @@ def connect_account(request, payload: AccountIn):
         household_id=household_id(request), name=payload.name.strip() or "Family"
     )
     try:
-        return {"authorize_url": client.authorize_url(account, payload.return_to), "account_id": account.pk}
+        url = client.authorize_url(account, payload.return_to, payload.popup)
+        return {"authorize_url": url, "account_id": account.pk}
     except client.YotoError as exc:
         raise HttpError(400, str(exc)) from exc
 
@@ -66,7 +68,11 @@ def reconnect(request, account_id: int, return_to: str = ""):
         raise HttpError(400, str(exc)) from exc
 
 
-def _back_to_yoto(return_to: str = "", **params) -> HttpResponseRedirect:
+def _back_to_yoto(return_to: str = "", popup: bool = False, **params) -> HttpResponseRedirect:
+    if popup:
+        from core.connect import finished_page
+
+        return finished_page("yoto", True, return_to or "/yoto", **params)
     page = return_to or "/yoto"
     joiner = "&" if "?" in page else "?"
     return HttpResponseRedirect(f"{page}{joiner}{urlencode(params)}")
@@ -74,24 +80,27 @@ def _back_to_yoto(return_to: str = "", **params) -> HttpResponseRedirect:
 
 @router.get("/callback")
 def oauth_callback(request, code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    mine = YotoAccount.objects.filter(household_id=household_id(request))
+    account = next((a for a in mine if state and (a.pending_login or {}).get("state") == state), None)
+    pending = (account.pending_login or {}) if account else {}
+    return_to, popup = pending.get("return_to", ""), bool(pending.get("popup"))
     if error:
         if "pre-approved" in error_description:
             scopes = ", ".join(client.SCOPES.split())
             return _back_to_yoto(
+                return_to,
+                popup,
                 error=f"Your Yoto app isn't allowed all the scopes it needs. At dashboard.yoto.dev, open the app, "
-                f"tick {scopes}, save, then connect again."
+                f"tick {scopes}, save, then connect again.",
             )
-        return _back_to_yoto(error=error_description or error)
-    mine = YotoAccount.objects.filter(household_id=household_id(request))
-    account = next((a for a in mine if (a.pending_login or {}).get("state") == state), None)
+        return _back_to_yoto(return_to, popup, error=error_description or error)
     if account is None:
         return _back_to_yoto(error="Sign-in expired; try again")
-    return_to = (account.pending_login or {}).get("return_to", "")
     try:
         client.finish_authorize(account, code, state)
     except client.YotoError as exc:
-        return _back_to_yoto(return_to, error=str(exc))
-    return _back_to_yoto(return_to, connected=1)
+        return _back_to_yoto(return_to, popup, error=str(exc))
+    return _back_to_yoto(return_to, popup, connected=1)
 
 
 @router.delete("/accounts/{account_id}")

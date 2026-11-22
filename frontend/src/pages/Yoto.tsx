@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { connectInPopup } from "../connect";
 import { BookOpen, CheckCircle2, CloudUpload, Folder, Library, Link2, Mic, Plus, Search, SquareStack } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -27,13 +28,23 @@ export function statusPill(status: Playlist["status"]) {
   return <span className={`pill ${tone}`}>{status === "synced" && <CheckCircle2 size={11} />} {label}</span>;
 }
 
+/** Sign in to Yoto in a popup window; the app stays where it is and refreshes when it's done. */
 export function useConnectYoto() {
   const toast = useToast();
+  const qc = useQueryClient();
   return async () => {
     try {
-      const { authorize_url } = await api.post<{ authorize_url: string }>("/yoto/accounts", { name: "Family" });
-      window.location.href = authorize_url;
+      const { authorize_url } = await api.post<{ authorize_url: string }>("/yoto/accounts", {
+        name: "Family",
+        popup: true,
+        return_to: window.location.pathname,
+      });
+      const result = await connectInPopup(authorize_url, "yoto");
+      for (const key of ["yoto-accounts", "onboarding", "playlists"]) qc.invalidateQueries({ queryKey: [key] });
+      if (result.error) toast(`Yoto sign-in didn't finish: ${result.error}`, "error");
+      else toast("Yoto account connected");
     } catch (e) {
+      if (e instanceof Error && e.message === "closed") return; // they closed the window
       toast(errorText(e), "error");
     }
   };

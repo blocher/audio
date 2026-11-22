@@ -1,18 +1,90 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronDown, ExternalLink } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, ChevronDown, ClipboardPaste, ExternalLink } from "lucide-react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
+import { connectInPopup, openPopup } from "../connect";
 import { PROVIDER_USES } from "../providers";
 import type { SettingsData } from "../types";
 import { Button, Note, errorText, useToast } from "./ui";
 
 const RECOMMENDED = "openai";
+const KEY_SHAPE = /^sk-[\w-]{20,}$/;
 
 /**
- * The gentle way to add an AI key: one recommended provider with click-by-click steps, others tucked away. Used by the
- * welcome wizard; Settings has the full list.
+ * Setting up Ask without leaving the app. The easiest way is OpenRouter's sign-in, which hands the app a key in a
+ * popup. Otherwise one OpenAI key, opened beside the app and picked up from the clipboard when they come back.
  */
 export function AiQuickSetup({ onSaved }: { onSaved?: () => void }) {
+  const [way, setWay] = useState<"connect" | "key">("connect");
+  return (
+    <div className="stack" style={{ "--gap": "16px", width: "100%" } as React.CSSProperties}>
+      <div className="choices">
+        <label>
+          <input type="radio" name="ai-way" checked={way === "connect"} onChange={() => setWay("connect")} />
+          <strong>
+            Connect with OpenRouter <span className="pill sage">Easiest</span>
+          </strong>
+          <small>Sign in with Google or email in a small window. No keys to copy.</small>
+        </label>
+        <label>
+          <input type="radio" name="ai-way" checked={way === "key"} onChange={() => setWay("key")} />
+          <strong>Paste a key from OpenAI or another company</strong>
+          <small>If you already have one, or prefer to pay OpenAI directly.</small>
+        </label>
+      </div>
+      {way === "connect" ? <OpenRouterConnect onSaved={onSaved} /> : <KeySetup onSaved={onSaved} />}
+    </div>
+  );
+}
+
+/** One button: OpenRouter's sign-in opens in a popup and hands this app a key of the person's own. */
+export function OpenRouterConnect({ onSaved, compact }: { onSaved?: () => void; compact?: boolean }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function connect() {
+    setBusy(true);
+    setError("");
+    try {
+      const { url } = await api.post<{ url: string }>("/connect/openrouter/start", {
+        popup: true,
+        return_to: window.location.pathname + window.location.search,
+      });
+      const result = await connectInPopup(url, "openrouter");
+      for (const k of ["settings", "ai-models", "onboarding"]) qc.invalidateQueries({ queryKey: [k] });
+      if (result.error) setError(result.error);
+      else {
+        toast("OpenRouter is connected. Ask and Transcribe are ready.");
+        onSaved?.();
+      }
+    } catch (e) {
+      if (!(e instanceof Error && e.message === "closed")) setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
+      {!compact && (
+        <p className="muted" style={{ margin: 0 }}>
+          OpenRouter is one account for AI from OpenAI, Anthropic and Google. A window opens: sign in (Google works),
+          add some credit if it asks ($5 lasts a long time), then click <b>Authorize</b>. It closes by itself, and you're
+          done. You can set a spending limit, or disconnect, on OpenRouter any time.
+        </p>
+      )}
+      {error && <Note tone="error">{error}</Note>}
+      <Button variant="primary" size={compact ? undefined : "lg"} loading={busy} onClick={() => void connect()} style={{ alignSelf: "flex-start" }}>
+        Connect with OpenRouter
+      </Button>
+    </div>
+  );
+}
+
+/** Paste-a-key: one recommended provider with click-by-click steps, others tucked away. */
+function KeySetup({ onSaved }: { onSaved?: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<SettingsData>("/settings") });
@@ -23,6 +95,34 @@ export function AiQuickSetup({ onSaved }: { onSaved?: () => void }) {
   const [error, setError] = useState("");
   const providers = settings.data?.providers ?? [];
   const chosen = providers.find((p) => p.id === provider);
+  const [waiting, setWaiting] = useState(false);
+
+  // After they open OpenAI's key page, pick the key up from the clipboard as soon as they come back to this window.
+  useEffect(() => {
+    if (!waiting) return;
+    const onFocus = async () => {
+      try {
+        const text = (await navigator.clipboard.readText()).trim();
+        if (KEY_SHAPE.test(text)) {
+          setKey(text);
+          setWaiting(false);
+          toast("We pasted the key you copied. Click Save key.");
+        }
+      } catch {
+        /* the browser wants a tap first; the Paste button handles that */
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [waiting, toast]);
+
+  async function pasteFromClipboard() {
+    try {
+      setKey((await navigator.clipboard.readText()).trim());
+    } catch {
+      setError("Your browser didn't allow pasting. Press and hold in the box and choose Paste.");
+    }
+  }
 
   async function save() {
     setBusy(true);
@@ -63,9 +163,18 @@ export function AiQuickSetup({ onSaved }: { onSaved?: () => void }) {
                   A ChatGPT login works. If it's your first time, OpenAI asks you to add a payment card and some credit
                   ($5 lasts a long time).
                 </span>
-                <a className="btn" href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ alignSelf: "flex-start" }}>
-                  <ExternalLink size={16} /> Open platform.openai.com
-                </a>
+                <Button
+                  icon={<ExternalLink size={16} />}
+                  style={{ alignSelf: "flex-start" }}
+                  onClick={() => {
+                    setWaiting(true);
+                    if (!openPopup("https://platform.openai.com/api-keys", "openai-keys")) {
+                      window.open("https://platform.openai.com/api-keys", "_blank", "noreferrer");
+                    }
+                  }}
+                >
+                  Open OpenAI beside this window
+                </Button>
               </div>
             </li>
             <li>
@@ -78,8 +187,16 @@ export function AiQuickSetup({ onSaved }: { onSaved?: () => void }) {
             </li>
             <li>
               <div className="stack" style={{ "--gap": "6px" } as React.CSSProperties}>
-                <strong>Paste it here</strong>
-                <KeyInput value={key} onChange={setKey} placeholder="sk-…" />
+                <strong>Come back here</strong>
+                <span className="muted" style={{ fontSize: "var(--text-sm)" }}>
+                  We'll paste the key for you when you return to this window. If not, tap Paste.
+                </span>
+                <div className="row" style={{ gap: 8 }}>
+                  <KeyInput value={key} onChange={setKey} placeholder="sk-…" />
+                  {!!navigator.clipboard?.readText && (
+                    <Button icon={<ClipboardPaste size={15} />} onClick={() => void pasteFromClipboard()}>Paste</Button>
+                  )}
+                </div>
               </div>
             </li>
           </ol>

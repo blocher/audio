@@ -122,6 +122,7 @@ SECRET_FIELDS = {
     "gemini": ["api_key"],
     "xai": ["api_key"],
     "groq": ["api_key"],
+    "openrouter": ["api_key"],
     "yoto": ["client_secret"],
 }
 PLAIN_FIELDS = {
@@ -167,7 +168,7 @@ ENV_FALLBACK = {
 }
 
 
-AI_SERVICES = {"openai", "anthropic", "gemini", "xai", "groq"}
+AI_SERVICES = {"openai", "anthropic", "gemini", "xai", "groq", "openrouter"}
 
 
 def _household():

@@ -19,6 +19,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { connectInPopup } from "../connect";
 import { AiQuickSetup } from "../components/AiSetup";
 import { AudibleSignInSteps } from "../components/AudibleConnect";
 import { Button, Note, SourceIcon, Spinner, errorText } from "../components/ui";
@@ -484,10 +485,18 @@ function YotoStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => vo
     setBusy(true);
     setError("");
     try {
-      const { authorize_url } = await api.post<{ authorize_url: string }>("/yoto/accounts", { name: data.name, return_to: "/welcome?step=yoto" });
-      window.location.href = authorize_url;
+      const { authorize_url } = await api.post<{ authorize_url: string }>("/yoto/accounts", {
+        name: data.name,
+        return_to: "/welcome?step=yoto",
+        popup: true,
+      });
+      const result = await connectInPopup(authorize_url, "yoto");
+      if (result.error) setError(result.error);
+      qc.invalidateQueries({ queryKey: ["onboarding"] });
+      qc.invalidateQueries({ queryKey: ["yoto-accounts"] });
     } catch (e) {
-      setError(errorText(e));
+      if (!(e instanceof Error && e.message === "closed")) setError(errorText(e));
+    } finally {
       setBusy(false);
     }
   }
@@ -499,7 +508,7 @@ function YotoStep({ data, onNext, onBack }: { data: Onboarding; onNext: () => vo
       <p className="welcome-lede">
         {connected.length
           ? "Cards you make here are sent straight to your Yoto app. Then link each one to a blank card in the Yoto app."
-          : "This lets Audio send cards to your Yoto app. You'll sign in on Yoto's own website, then come straight back here."}
+          : "This lets Audio send cards to your Yoto app. A small Yoto sign-in window opens; sign in there and it closes by itself."}
       </p>
       {connected.map((c) => (
         <Done key={c}>Connected to {c}</Done>
