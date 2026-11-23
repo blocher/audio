@@ -152,8 +152,8 @@ function CardActions({ item }: { item: LibraryItem }) {
 export function CoverGrid({ items }: { items: LibraryItem[] }) {
   return (
     <div className="cover-grid">
-      {items.map((item) => (
-        <div key={item.key} className="cover-card">
+      {items.map((item, i) => (
+        <div key={item.key} className="cover-card" style={{ "--i": Math.min(i, 14) } as React.CSSProperties}>
           <Link to={item.to} className="cover-card-link">
             <div style={{ position: "relative" }}>
               {item.kind === "folder" ? (

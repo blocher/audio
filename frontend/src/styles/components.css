@@ -4190,3 +4190,431 @@ body:has(.impersonation-bar) .welcome {
 .shell.no-player {
   --player-h: 0px;
 }
+
+/* ───────── Personality: small accents and gentle motion ─────────
+ * Everything that moves here is switched off for people who ask for less motion (see base.css). */
+
+/* A little hand-drawn squiggle under each page title. */
+.page-head h1::after {
+  content: "";
+  display: block;
+  width: 58px;
+  height: 8px;
+  margin-top: 6px;
+  background: var(--terracotta);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 8'%3E%3Cpath d='M2 5c6-4 10-4 15 0s9 4 14 0 10-4 15 0 7 3 10 1' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E")
+    no-repeat left / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 8'%3E%3Cpath d='M2 5c6-4 10-4 15 0s9 4 14 0 10-4 15 0 7 3 10 1' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E")
+    no-repeat left / contain;
+  opacity: 0.85;
+  animation: squiggle-in 0.7s 0.15s var(--ease) both;
+}
+
+@keyframes squiggle-in {
+  from {
+    width: 0;
+  }
+}
+
+/* A small honey diamond before every eyebrow label. */
+.eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 1px 1px;
+  border-radius: 1.5px;
+  background: var(--honey);
+  transform: rotate(45deg);
+  vertical-align: middle;
+}
+
+/* Pages ease in when you move between them. */
+/* Opacity only: a transform here would trap the dialogs opened inside a page. */
+.page-enter {
+  animation: page-in 0.3s var(--ease) backwards;
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Covers arrive one after another, and lift a touch when you point at them. */
+/* "backwards", so once a card has arrived it keeps no transform (a dialog opened from it sits on the page). */
+.cover-grid > .cover-card {
+  animation: card-in 0.42s var(--ease) backwards;
+  animation-delay: calc(var(--i, 0) * 28ms);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+.cover-card .cover {
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+.cover-card:hover .cover {
+  transform: translateY(-3px) rotate(-0.6deg);
+  box-shadow: 0 2px 3px rgb(58 36 24 / 0.12), 0 14px 28px rgb(58 36 24 / 0.2);
+}
+
+/* Covers without art: a warm tint per book, with the title set like a book jacket. */
+.cover .fallback {
+  background:
+    radial-gradient(120% 80% at 100% 0%, var(--sheen, rgb(255 255 255 / 0.35)), transparent 60%),
+    linear-gradient(160deg, var(--tint-a), var(--tint-b));
+}
+
+.cover .fallback span {
+  display: block;
+  padding: 10px 6px;
+  border-top: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .cover .fallback {
+    --sheen: rgb(255 255 255 / 0.06);
+  }
+}
+
+.cover .fallback.tint-0 {
+  --tint-a: var(--terracotta-soft);
+  --tint-b: color-mix(in srgb, var(--terracotta) 32%, var(--paper-sunk));
+}
+
+.cover .fallback.tint-1 {
+  --tint-a: var(--sage-soft);
+  --tint-b: color-mix(in srgb, var(--sage) 34%, var(--paper-sunk));
+}
+
+.cover .fallback.tint-2 {
+  --tint-a: var(--honey-soft);
+  --tint-b: color-mix(in srgb, var(--honey) 34%, var(--paper-sunk));
+}
+
+.cover .fallback.tint-3 {
+  --tint-a: var(--sky-soft);
+  --tint-b: color-mix(in srgb, var(--sky) 30%, var(--paper-sunk));
+}
+
+.cover .fallback.tint-4 {
+  --tint-a: var(--berry-soft);
+  --tint-b: color-mix(in srgb, var(--berry) 26%, var(--paper-sunk));
+}
+
+/* Buttons: primary ones lift a little on hover and press down when tapped. */
+.btn.primary:hover:not(:disabled),
+.btn.sage:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.2) inset, 0 6px 14px rgb(167 82 54 / 0.28);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+}
+
+.card-ask {
+  transition: background 0.15s, color 0.15s, transform 0.15s var(--ease);
+}
+
+.card-ask:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+/* Starring pops, with a little ring. */
+.star-btn {
+  position: relative;
+}
+
+.star-btn.pop svg {
+  animation: star-pop 0.5s var(--ease);
+}
+
+.star-btn.pop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid var(--honey);
+  animation: star-ring 0.5s ease-out forwards;
+  pointer-events: none;
+}
+
+.star-btn:not(.overlay).pop::after {
+  width: 38px;
+  left: 0;
+  right: auto;
+  margin-left: 6px;
+}
+
+@keyframes star-pop {
+  40% {
+    transform: scale(1.4) rotate(-14deg);
+  }
+  70% {
+    transform: scale(0.92) rotate(6deg);
+  }
+}
+
+@keyframes star-ring {
+  from {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* The logo's sound bars bob along while something is playing. */
+.brand.playing svg path {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: eq 0.9s ease-in-out infinite alternate;
+}
+
+.brand.playing svg path:nth-child(2) {
+  animation-delay: -0.3s;
+}
+
+.brand.playing svg path:nth-child(3) {
+  animation-delay: -0.6s;
+}
+
+.brand.playing svg path:nth-child(4) {
+  animation-delay: -0.15s;
+}
+
+.brand.playing svg path:nth-child(5) {
+  animation-delay: -0.45s;
+}
+
+.brand.playing svg path:nth-child(6) {
+  animation-delay: -0.75s;
+}
+
+@keyframes eq {
+  from {
+    transform: scaleY(0.45);
+  }
+  to {
+    transform: scaleY(1.05);
+  }
+}
+
+/* The big play button breathes softly while playing. */
+.player.is-playing .ctrl.main-play {
+  animation: breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--terracotta) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--terracotta) 0%, transparent);
+  }
+}
+
+/* Menu: the icon nudges on hover, and the current page gets a honey marker. */
+.nav a svg {
+  transition: transform 0.2s var(--ease);
+}
+
+.nav a:hover svg {
+  transform: translateX(2px);
+}
+
+.nav a {
+  position: relative;
+}
+
+.nav a.active::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--honey);
+  animation: dot-in 0.3s var(--ease);
+}
+
+.nav a.active:has(.count)::after {
+  display: none;
+}
+
+@keyframes dot-in {
+  from {
+    transform: scale(0);
+  }
+}
+
+/* Empty states: the icon floats gently. */
+.empty > svg:first-child {
+  animation: float 4.5s ease-in-out infinite;
+}
+
+@keyframes float {
+  50% {
+    transform: translateY(-6px) rotate(-3deg);
+  }
+}
+
+/* Toasts slide in with a little spring. */
+.toast {
+  animation: toast-in 0.42s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+}
+
+/* Yoto cards fill up when they first appear. */
+.ycard-fill {
+  transform-origin: bottom;
+  animation: fill-up 0.8s 0.1s var(--ease) both;
+}
+
+@keyframes fill-up {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* The first-card guide: the step to do now bobs once to catch the eye. */
+.howto-steps li.current .howto-n {
+  animation: nudge 1.6s 0.6s ease-in-out 2;
+}
+
+@keyframes nudge {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: translateY(-4px);
+  }
+  40% {
+    transform: none;
+  }
+  55% {
+    transform: translateY(-2px);
+  }
+}
+
+/* "You're all set": the popper wiggles and a little confetti falls, once. */
+.yoto-done {
+  position: relative;
+  overflow: hidden;
+}
+
+.yoto-done-icon svg {
+  animation: wiggle 0.9s 0.2s ease-in-out 2;
+  transform-origin: 30% 80%;
+}
+
+@keyframes wiggle {
+  25% {
+    transform: rotate(-12deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+  75% {
+    transform: rotate(-4deg);
+  }
+}
+
+.confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.confetti i {
+  position: absolute;
+  top: -10px;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: confetti-fall 1.6s var(--ease) forwards;
+}
+
+.confetti i.c0 {
+  background: var(--terracotta);
+}
+
+.confetti i.c1 {
+  background: var(--honey);
+}
+
+.confetti i.c2 {
+  background: var(--sage);
+}
+
+.confetti i.c3 {
+  background: var(--sky);
+}
+
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--drift), 170px) rotate(var(--spin));
+  }
+}
+
+/* Job progress shimmers while it works. */
+.job-line .progress > div,
+.send-progress .progress > div {
+  background-image: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.28) 50%, transparent 70%);
+  background-size: 200% 100%;
+  background-color: var(--terracotta);
+  animation: bar-shine 1.8s linear infinite;
+}
+
+@keyframes bar-shine {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/* Size choices settle into place when picked. */
+.size-option.active {
+  animation: picked 0.3s var(--ease);
+}
+
+@keyframes picked {
+  50% {
+    transform: scale(1.03);
+  }
+}

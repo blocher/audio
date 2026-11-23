@@ -81,7 +81,7 @@ export function useConnectYoto() {
 // ---------- what to do once it's there ----------
 
 /** The step people miss: the playlist is in the Yoto app's Library, waiting to be linked to a blank card. */
-export function YotoNextSteps({ title, compact }: { title?: string; compact?: boolean }) {
+export function YotoNextSteps({ title, compact, celebrate }: { title?: string; compact?: boolean; celebrate?: boolean }) {
   const steps = (
     <ol className="next-steps">
       <li>Open the <b>Yoto app</b> on your phone.</li>
@@ -96,12 +96,39 @@ export function YotoNextSteps({ title, compact }: { title?: string; compact?: bo
   if (compact) return steps;
   return (
     <div className="yoto-done">
+      {celebrate && <Confetti />}
       <span className="yoto-done-icon">
         <PartyPopper size={28} />
       </span>
       <h3>You're all set!</h3>
       <p>Go to your Yoto app and select Library to find this playlist and create a custom card.</p>
       {steps}
+    </div>
+  );
+}
+
+/** A handful of paper bits that fall once. Purely decoration; hidden from screen readers and reduced motion. */
+function Confetti() {
+  const bits = useMemo(
+    () =>
+      Array.from({ length: 14 }, (_, i) => ({
+        left: 6 + ((i * 37) % 88),
+        delay: (i % 5) * 70,
+        drift: ((i * 53) % 40) - 20,
+        spin: ((i * 71) % 300) + 120,
+        tone: i % 4,
+      })),
+    [],
+  );
+  return (
+    <div className="confetti" aria-hidden>
+      {bits.map((b, i) => (
+        <i
+          key={i}
+          className={`c${b.tone}`}
+          style={{ left: `${b.left}%`, animationDelay: `${b.delay}ms`, "--drift": `${b.drift}px`, "--spin": `${b.spin}deg` } as React.CSSProperties}
+        />
+      ))}
     </div>
   );
 }
@@ -123,10 +150,10 @@ function SendProgress({ jobId, title, onRetry }: { jobId: number; title: string;
         <div className="muted" style={{ fontSize: "var(--text-sm)" }}>
           {job?.message || "Starting"}
         </div>
-        <Note tone="info">This takes a few minutes. You can close this window; it keeps going, and the book shows when it's on Yoto.</Note>
+        <Note tone="info">This takes a few minutes. You can close this window; it keeps going, and shows “On Yoto” when it's done.</Note>
       </div>
     );
-  if (job.status === "succeeded") return <YotoNextSteps title={title} />;
+  if (job.status === "succeeded") return <YotoNextSteps title={title} celebrate />;
   return (
     <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
       <Note tone="error">

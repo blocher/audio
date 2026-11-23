@@ -331,7 +331,7 @@ function ListenHereButton({
 
 export function JobLine({ job }: { job: Job }) {
   return (
-    <div className="panel" style={{ padding: 14, marginTop: 16, maxWidth: 620 }}>
+    <div className="panel job-line" style={{ padding: 14, marginTop: 16, maxWidth: 620 }}>
       <div className="row" style={{ marginBottom: 8, fontSize: "var(--text-sm)" }}>
         <Spinner size={15} />
         <strong>{job.title}</strong>

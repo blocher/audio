@@ -83,7 +83,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
   return (
     <div className={`shell ${player.current ? "" : "no-player"}`}>
       <aside className={`sidebar ${open ? "open" : ""}`}>
-        <Link to="/library" className="brand">
+        <Link to="/library" className={`brand ${player.playing ? "playing" : ""}`} title={player.playing ? "Playing" : undefined}>
           <AudioLines size={26} /> Audio
         </Link>
         <nav className="nav" aria-label="Main">
@@ -152,7 +152,9 @@ export default function Shell({ user, children }: { user: User; children: ReactN
       <main className="main">
         <div className="main-inner">
           <Button className="menu-btn" variant="ghost" iconOnly onClick={() => setOpen(true)} icon={<Menu size={20} />} aria-label="Menu" />
-          {children}
+          <div key={location.pathname} className="page-enter">
+            {children}
+          </div>
         </div>
       </main>
       <PlayerBar />

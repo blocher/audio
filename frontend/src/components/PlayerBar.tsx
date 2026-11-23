@@ -19,7 +19,7 @@ export default function PlayerBar() {
     </>
   );
   return (
-    <div className="player">
+    <div className={`player ${p.playing ? "is-playing" : ""}`}>
       {p.current.link ? (
         <Link to={p.current.link} className="now">
           {now}

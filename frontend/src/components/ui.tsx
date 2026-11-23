@@ -49,6 +49,13 @@ export function Meter({ value }: { value: number }) {
   );
 }
 
+/** One of five warm tints, picked from the title so the same book always gets the same one. */
+export function tintFor(title: string): number {
+  let h = 0;
+  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0;
+  return h % 5;
+}
+
 export function Cover({ src, title, className }: { src?: string | null; title: string; className?: string }) {
   const [failed, setFailed] = useState(false);
   return (
@@ -56,7 +63,9 @@ export function Cover({ src, title, className }: { src?: string | null; title: s
       {src && !failed ? (
         <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
       ) : (
-        <div className="fallback">{title}</div>
+        <div className={`fallback tint-${tintFor(title)}`}>
+          <span>{title}</span>
+        </div>
       )}
     </div>
   );

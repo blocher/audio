@@ -1,4 +1,5 @@
 import { Star } from "lucide-react";
+import { useState } from "react";
 import { useStars, useToggleStar, type StarKind } from "../hooks/stars";
 
 /** Star or unstar a book, podcast or folder for the signed-in user. Safe to put inside a link. */
@@ -16,17 +17,20 @@ export function StarButton({
   const stars = useStars();
   const toggle = useToggleStar();
   const on = stars.isStarred(kind, id);
+  const [pop, setPop] = useState(0);
   const label = on ? `Unstar ${title}` : `Star ${title}`;
   return (
     <button
       type="button"
-      className={`star-btn ${overlay ? "overlay" : ""} ${on ? "on" : ""}`}
+      className={`star-btn ${overlay ? "overlay" : ""} ${on ? "on" : ""} ${pop ? "pop" : ""}`}
+      onAnimationEnd={() => setPop(0)}
       aria-pressed={on}
       aria-label={label}
-      title={on ? "Starred: on your home page" : "Star to keep it on your home page"}
+      title={on ? "Starred: on My Shelf" : "Star to keep it on My Shelf"}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (!on) setPop((n) => n + 1);
         toggle.mutate({ kind, id, on: !on });
       }}
     >
