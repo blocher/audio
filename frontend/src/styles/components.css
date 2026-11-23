@@ -2578,6 +2578,28 @@ body:has(.ask-screen) .menu-btn {
   width: min(360px, 100%);
 }
 
+/* A quiet text link that's really a button ("Forgot your password?"). */
+.link-button {
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--terracotta);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: text-decoration-color 0.15s var(--ease);
+}
+
+.link-button:hover,
+.link-button:focus-visible {
+  text-decoration-color: currentColor;
+}
+
 @media (max-width: 820px) {
   .login {
     grid-template-columns: 1fr;

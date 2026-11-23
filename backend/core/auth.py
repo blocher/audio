@@ -1,10 +1,17 @@
 """Session login. There is no open sign-up: people join by accepting an invitation from a super admin."""
 
+import logging
+
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
+from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
+from django.core.mail import send_mail
 from django.db import transaction
 from django.middleware.csrf import get_token
 from django.utils import timezone
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.utils import check_csrf
@@ -14,6 +21,7 @@ from .tenancy import membership
 
 router = Router(tags=["auth"])
 User = get_user_model()
+log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 8
 LOCKOUT_SECONDS = 15 * 60
@@ -69,6 +77,12 @@ class SessionOut(Schema):
     authenticated: bool
     user: UserOut | None = None
     csrf_token: str
+    # The sign-in page offers "Forgot your password?" only when the site can email the link.
+    can_reset_password: bool = False
+
+    @staticmethod
+    def resolve_can_reset_password(obj) -> bool:
+        return bool(settings.EMAIL_CONFIGURED)
 
 
 def _client_ip(request) -> str:
@@ -119,6 +133,95 @@ def do_login(request, payload: LoginIn):
 def do_logout(request):
     logout(request)
     return {"ok": True}
+
+
+# ---------- forgot password ----------
+
+RESETS_PER_EMAIL = 3  # links sent to one address per lockout window
+
+
+class ForgotIn(Schema):
+    email: str
+
+
+class ResetInfo(Schema):
+    valid: bool
+    email: str = ""
+    name: str = ""
+
+
+class ResetIn(Schema):
+    password: str
+
+
+def reset_link(user) -> str:
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    return f"{settings.PUBLIC_BASE_URL}/reset/{uid}/{default_token_generator.make_token(user)}"
+
+
+def _reset_user(uid: str, token: str):
+    """The login a reset link is for, or None when the link is wrong, used or out of date."""
+    try:
+        user = User.objects.get(pk=int(force_str(urlsafe_base64_decode(uid))), is_active=True)
+    except (ValueError, TypeError, OverflowError, User.DoesNotExist):
+        return None
+    return user if default_token_generator.check_token(user, token) else None
+
+
+@router.post("/password/forgot", auth=None)
+def forgot_password(request, payload: ForgotIn):
+    """Email a link to choose a new password. The answer is the same whether or not the address has a login."""
+    if check_csrf(request, forgot_password):
+        raise HttpError(403, "CSRF check failed; reload the page")
+    if not settings.EMAIL_CONFIGURED:
+        raise HttpError(400, "This site can't send email. Ask whoever invited you to set a new password.")
+    key = _throttle(request)
+    _failed(key)  # every request counts, so this can't be used to mail someone over and over
+    email = payload.email.strip().lower()
+    sent_key = f"password-resets:{email}"
+    user = User.objects.filter(email__iexact=email, is_active=True).order_by("pk").first() if "@" in email else None
+    if user is not None and cache.get(sent_key, 0) < RESETS_PER_EMAIL:
+        cache.set(sent_key, cache.get(sent_key, 0) + 1, LOCKOUT_SECONDS)
+        hours = settings.PASSWORD_RESET_TIMEOUT // 3600
+        body = (
+            f"Hi {user.first_name or 'there'},\n\n"
+            "Someone (hopefully you) asked to reset your password for Audio. Open this link to choose a new one:\n"
+            f"{reset_link(user)}\n\n"
+            f"The link works once, for {hours} hours. If you didn't ask, you can ignore this email; "
+            "your password stays the same.\n"
+        )
+        try:
+            send_mail("Reset your Audio password", body, None, [user.email])
+        except Exception as exc:  # noqa: BLE001 - same answer either way; the log says what went wrong
+            log.warning("Couldn't email a password reset to user %s: %s", user.pk, exc)
+    return {"ok": True}
+
+
+@router.get("/password/reset/{uid}/{token}", auth=None, response=ResetInfo)
+def reset_info(request, uid: str, token: str):
+    user = _reset_user(uid, token)
+    if user is None:
+        return {"valid": False}
+    return {"valid": True, "email": user.email, "name": user.first_name}
+
+
+@router.post("/password/reset/{uid}/{token}", auth=None, response=SessionOut)
+def reset_password(request, uid: str, token: str, payload: ResetIn):
+    from .users import check_password_strength
+
+    if check_csrf(request, reset_password):
+        raise HttpError(403, "CSRF check failed; reload the page")
+    key = _throttle(request)
+    user = _reset_user(uid, token)
+    if user is None:
+        _failed(key)
+        raise HttpError(400, "This link has expired or was already used. Ask for a new one from the sign-in page.")
+    check_password_strength(payload.password, user)
+    user.set_password(payload.password)  # also makes this link (and any other sent) stop working
+    user.save(update_fields=["password"])
+    cache.delete(key)
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return {"authenticated": True, "user": user, "csrf_token": get_token(request)}
 
 
 # ---------- invitations ----------

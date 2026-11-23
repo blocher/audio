@@ -159,6 +159,8 @@ MAILERS = {
 }
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Audio <audio@benlocher.com>")
 INVITE_DAYS = 14
+# Emailed "forgot your password" links work for two hours, once (a new password invalidates them).
+PASSWORD_RESET_TIMEOUT = 2 * 60 * 60
 
 LOGGING = {
     "version": 1,

@@ -7,6 +7,7 @@ import ImpersonationBar from "./components/Impersonation";
 import Shell from "./components/Shell";
 import { Spinner, ToastProvider } from "./components/ui";
 import AcceptInvite from "./pages/AcceptInvite";
+import ResetPassword from "./pages/ResetPassword";
 import Activity from "./pages/Activity";
 import BookDetail from "./pages/BookDetail";
 import Connected from "./pages/Connected";
@@ -60,6 +61,7 @@ export default function App() {
       {!session.data?.authenticated ? (
         <Routes>
           <Route path="/invite/:token" element={<AcceptInvite />} />
+          <Route path="/reset/:uid/:token" element={<ResetPassword />} />
           <Route path="*" element={<Login />} />
         </Routes>
       ) : location.pathname === "/welcome" ? (

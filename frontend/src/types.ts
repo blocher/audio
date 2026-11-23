@@ -82,6 +82,8 @@ export interface Session {
   authenticated: boolean;
   user: User | null;
   csrf_token: string;
+  /** The site can email "forgot your password" links. */
+  can_reset_password?: boolean;
 }
 
 export interface Track {
