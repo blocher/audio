@@ -151,9 +151,11 @@ export default function Yoto() {
       ))}
 
       {anyOnYoto && (
-        <Note tone="ok">
-          <b>Cards on Yoto are waiting in the Yoto app.</b> Open the Yoto app, tap Library, find the playlist, and link it to a blank card.
-        </Note>
+        <div style={{ marginTop: 16 }}>
+          <Note tone="ok">
+            <b>Cards on Yoto are waiting in the Yoto app.</b> Open the Yoto app, tap Library, find the playlist, and link it to a blank card.
+          </Note>
+        </div>
       )}
 
       {playlists.isLoading ? (
