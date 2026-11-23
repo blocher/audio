@@ -71,7 +71,6 @@ const FILTERS: {
     label: "In progress",
     icon: <Hourglass size={15} />,
     test: (i) => !!i.inProgress,
-    booksOnly: true,
   },
   {
     key: "finished",

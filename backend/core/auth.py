@@ -35,12 +35,18 @@ class UserOut(Schema):
     # What they chose in the wizard; empty means everything.
     features: list[str]
     onboarded: bool
+    # Runs their household: invites, edits and removes the people in it.
+    is_household_admin: bool = False
     # Set while a super admin is looking at the app as this person.
     impersonator: str | None = None
 
     @staticmethod
     def resolve_is_admin(obj) -> bool:
         return obj.is_superuser
+
+    @staticmethod
+    def resolve_is_household_admin(obj) -> bool:
+        return membership(obj).is_household_admin
 
     @staticmethod
     def resolve_household_id(obj) -> int:

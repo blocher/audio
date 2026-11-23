@@ -54,9 +54,21 @@ class Member(TimeStamped):
     features = models.JSONField(default=list, blank=True)
     # Set when they finish (or skip) the welcome wizard; until then the app opens on it.
     onboarded_at = models.DateTimeField(null=True, blank=True)
+    # Runs this household: invites people into it, and edits, resets passwords for or removes the people in it.
+    # The first person in a household gets it; they can give it to others.
+    is_household_admin = models.BooleanField(default=False)
 
     def __str__(self) -> str:
         return f"{self.user} in {self.household}"
+
+    def save(self, *args, **kwargs):
+        if (
+            self._state.adding
+            and self.household_id
+            and not Member.objects.filter(household_id=self.household_id, is_household_admin=True).exists()
+        ):
+            self.is_household_admin = True
+        super().save(*args, **kwargs)
 
 
 class Invite(TimeStamped):
@@ -224,3 +236,16 @@ class Star(TimeStamped):
     @property
     def target_id(self) -> int:
         return getattr(self, f"{self.kind}_id")
+
+
+class ListenPosition(models.Model):
+    """How far one person has got in one track, listening in this app. Like stars, it's personal."""
+
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="listen_positions")
+    track = models.ForeignKey(Track, on_delete=models.CASCADE, related_name="listen_positions")
+    position_ms = models.BigIntegerField(default=0)
+    finished = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "track"], name="one_position_per_track")]

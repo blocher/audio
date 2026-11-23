@@ -19,6 +19,8 @@ export interface User {
   features: Feature[];
   /** Finished (or skipped) the welcome wizard. */
   onboarded: boolean;
+  /** Runs their library: invites, edits and removes the people in it. The first person in a library is one. */
+  is_household_admin: boolean;
   /** Set while a super admin is viewing the app as this person: the super admin's name. */
   impersonator?: string | null;
 }

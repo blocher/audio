@@ -1,4 +1,7 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { api } from "./api";
+import { LISTENING_KEY, type ListenPosition } from "./hooks/listening";
 
 export interface QueueItem {
   trackId: number;
@@ -42,6 +45,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const pendingSeek = useRef<number | null>(null);
 
   const current = queue[index] ?? null;
+  const qc = useQueryClient();
+
+  // Where you are in each track is saved for you (every 15 seconds while playing, on pause, and at the end), so
+  // lists can show what's in progress and a track picks up where you left it.
+  const saveRef = useRef<(item: QueueItem | null, ms: number, finished?: boolean) => void>(() => {});
+  saveRef.current = (item, ms, finished = false) => {
+    if (!item || (!finished && ms < 1000)) return;
+    api
+      .put<ListenPosition>(`/listening/${item.trackId}`, { position_ms: Math.round(ms), finished })
+      .then((row) =>
+        qc.setQueryData<ListenPosition[]>(LISTENING_KEY, (rows) => [row, ...(rows ?? []).filter((r) => r.track_id !== row.track_id)]),
+      )
+      .catch(() => undefined);
+  };
+  const currentRef = useRef<QueueItem | null>(null);
+  currentRef.current = current;
 
   useEffect(() => {
     try {
@@ -68,8 +87,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     };
     const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onEnded = () => setIndex((i) => (i + 1 < queue.length ? i + 1 : i));
+    const onPause = () => {
+      setPlaying(false);
+      if (!el.ended) saveRef.current(currentRef.current, el.currentTime * 1000);
+    };
+    const onEnded = () => {
+      saveRef.current(currentRef.current, el.duration * 1000, true);
+      setIndex((i) => (i + 1 < queue.length ? i + 1 : i));
+    };
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("loadedmetadata", onMeta);
     el.addEventListener("play", onPlay);
@@ -85,9 +110,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [queue.length]);
 
   useEffect(() => {
+    if (!playing) return;
+    const id = window.setInterval(() => saveRef.current(currentRef.current, audio.current.currentTime * 1000), 15000);
+    return () => window.clearInterval(id);
+  }, [playing]);
+
+  useEffect(() => {
     const el = audio.current;
     if (!current) return;
     if (el.src !== new URL(current.src, location.href).href) {
+      // No start point given: pick up where you left this track, a few seconds back so you hear where you were.
+      if (pendingSeek.current == null) {
+        const saved = qc.getQueryData<ListenPosition[]>(LISTENING_KEY)?.find((r) => r.track_id === current.trackId);
+        if (saved && !saved.finished && saved.position_ms > 5000) pendingSeek.current = saved.position_ms - 3000;
+      }
       const wasPlaying = playing || el.dataset.autoplay === "1";
       el.src = current.src;
       el.playbackRate = rate;

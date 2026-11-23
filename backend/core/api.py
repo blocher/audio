@@ -14,7 +14,7 @@ from ninja.errors import HttpError
 
 from . import audio, packing
 from .jobs import enqueue
-from .models import Job, Star, Track
+from .models import Job, ListenPosition, Star, Track
 from .secrets import SITE_SERVICES, load_credential, mask, save_credential
 from .tenancy import household_id
 
@@ -603,3 +603,55 @@ def add_star(request, kind: Star.Kind, pk: int):
 def remove_star(request, kind: Star.Kind, pk: int):
     Star.objects.filter(user=request.user, kind=kind, **{f"{kind.value}_id": pk}).delete()
     return {"ok": True}
+
+
+# ---------- listening positions (per user) ----------
+
+# Close enough to the end to count as heard (credits, a closing jingle).
+FINISHED_WITHIN_MS = 30_000
+
+
+class PositionOut(Schema):
+    track_id: int
+    position_ms: int
+    finished: bool
+    updated_at: datetime
+    book_id: int | None = Field(None, alias="track.book_id")
+    collection_id: int | None = Field(None, alias="track.collection_id")
+    podcast_id: int | None = None
+
+    @staticmethod
+    def resolve_podcast_id(obj: ListenPosition) -> int | None:
+        return obj.track.episode.podcast_id if obj.track.episode_id else None
+
+
+class PositionIn(Schema):
+    position_ms: int = Field(ge=0)
+    finished: bool = False
+
+
+@router.get("/listening", response=list[PositionOut])
+def list_positions(request):
+    """Where the signed-in person is in every track they've started here, with what each track belongs to."""
+    return (
+        ListenPosition.objects.filter(user=request.user, track__in=Track.objects.for_household(household_id(request)))
+        .select_related("track", "track__episode")
+        .order_by("-updated_at")
+    )
+
+
+@router.put("/listening/{track_id}", response=PositionOut)
+def save_position(request, track_id: int, payload: PositionIn):
+    track = get_object_or_404(Track.objects.for_household(household_id(request)), pk=track_id)
+    finished = payload.finished or (
+        track.duration_ms > 0 and payload.position_ms >= track.duration_ms - FINISHED_WITHIN_MS
+    )
+    position, _ = ListenPosition.objects.update_or_create(
+        user=request.user,
+        track=track,
+        defaults={
+            "position_ms": min(payload.position_ms, track.duration_ms or payload.position_ms),
+            "finished": finished,
+        },
+    )
+    return ListenPosition.objects.select_related("track", "track__episode").get(pk=position.pk)

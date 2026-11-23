@@ -9,15 +9,18 @@ import type { Household, Invite, InviteSent, Person } from "../types";
 import { Button, Modal, Note, errorText, useToast } from "./ui";
 
 /**
- * Who can sign in. Super admins see everyone, grouped by household, invite new people and manage them. Anyone else
- * sees the people they share a library with, and manages only themselves.
+ * Who can sign in. Super admins see everyone, grouped by household, invite new people and manage them. Whoever runs a
+ * library (its household administrator) does the same for their own library. Anyone else sees the people they share
+ * a library with, and manages only themselves.
  */
 export function PeopleSection() {
   const me = useMe();
   const isAdmin = !!me?.is_admin;
+  // Super admins manage everyone; a household administrator manages the people in their own library.
+  const manages = isAdmin || !!me?.is_household_admin;
   const people = useQuery({ queryKey: ["people"], queryFn: () => api.get<Person[]>("/users") });
   const households = useQuery({ queryKey: ["households"], queryFn: () => api.get<Household[]>("/users/households"), enabled: isAdmin });
-  const invites = useQuery({ queryKey: ["invites"], queryFn: () => api.get<Invite[]>("/users/invites"), enabled: isAdmin });
+  const invites = useQuery({ queryKey: ["invites"], queryFn: () => api.get<Invite[]>("/users/invites"), enabled: manages });
   const [editing, setEditing] = useState<Person | "new" | null>(null);
   const [password, setPassword] = useState<Person | null>(null);
   const [inviting, setInviting] = useState(false);
@@ -35,7 +38,7 @@ export function PeopleSection() {
       <div className="panel-head">
         <Users size={18} />
         <h3>{isAdmin ? "People" : "Your library"}</h3>
-        {isAdmin && (
+        {manages && (
           <>
             <Button size="sm" variant="ghost" icon={<UserPlus size={15} />} onClick={() => setEditing("new")}>
               Add with a password
@@ -49,11 +52,13 @@ export function PeopleSection() {
       <p className="muted" style={{ marginBottom: 14 }}>
         {isAdmin
           ? "Everyone who can sign in, by library. People in the same library share its Audible books, podcasts and Yoto cards; different libraries never see each other's. Each person's Audible account decides which listening position they see."
-          : "The people you share this library with. You can change your own name, email, password and Audible account."}
+          : manages
+            ? "The people you share this library with. You run it: invite people into it, and change anyone's details or password here."
+            : "The people you share this library with. You can change your own name, email, password and Audible account."}
       </p>
       {people.isError && <Note tone="error">{errorText(people.error)}</Note>}
 
-      {isAdmin && (invites.data ?? []).length > 0 && <PendingInvites invites={invites.data!} />}
+      {manages && (invites.data ?? []).length > 0 && <PendingInvites invites={invites.data!} />}
 
       <div className="stack" style={{ "--gap": "18px" } as React.CSSProperties}>
         {ordered.map(([hid, group]) => (
@@ -67,6 +72,7 @@ export function PeopleSection() {
                   key={p.id}
                   person={p}
                   isAdmin={isAdmin}
+                  manages={manages}
                   sharedWith={group.people.filter((o) => o.id !== p.id).map((o) => o.first_name || o.username)}
                   onEdit={() => setEditing(p)}
                   onPassword={() => setPassword(p)}
@@ -76,9 +82,9 @@ export function PeopleSection() {
           </div>
         ))}
       </div>
-      {editing && <PersonDialog person={editing === "new" ? null : editing} isAdmin={isAdmin} households={households.data ?? []} onClose={() => setEditing(null)} />}
+      {editing && <PersonDialog person={editing === "new" ? null : editing} isAdmin={isAdmin} manages={manages} households={households.data ?? []} onClose={() => setEditing(null)} />}
       {password && <PasswordDialog person={password} onClose={() => setPassword(null)} />}
-      {inviting && <InviteDialog onClose={() => setInviting(false)} />}
+      {inviting && <InviteDialog superAdmin={isAdmin} onClose={() => setInviting(false)} />}
     </section>
   );
 }
@@ -116,12 +122,14 @@ function HouseholdHead({ name, household, isAdmin, mine }: { name: string; house
 function PersonRow({
   person: p,
   isAdmin,
+  manages,
   sharedWith,
   onEdit,
   onPassword,
 }: {
   person: Person;
   isAdmin: boolean;
+  manages: boolean;
   sharedWith: string[];
   onEdit: () => void;
   onPassword: () => void;
@@ -133,7 +141,9 @@ function PersonRow({
     refresh,
   );
   const [removing, setRemoving] = useState(false);
-  const canEdit = isAdmin || p.is_me;
+  // A household administrator never manages a super admin (only a super admin does).
+  const canManage = isAdmin || (manages && !p.is_admin);
+  const canEdit = canManage || p.is_me;
   const qc = useQueryClient();
 
   async function viewAs(id: number) {
@@ -152,6 +162,7 @@ function PersonRow({
       <div style={{ minWidth: 0 }}>
         <div className="title">
           {name} {p.is_me && <span className="pill sky">You</span>} {p.is_admin && <span className="pill terracotta">Super admin</span>}{" "}
+          {p.is_household_admin && <span className="pill sage">Runs this library</span>}{" "}
           {!p.onboarded && <span className="pill honey">Setting up</span>}
         </div>
         <div className="sub">
@@ -191,7 +202,7 @@ function PersonRow({
         )}
         {canEdit && <Button size="sm" iconOnly icon={<Pencil size={14} />} aria-label={`Edit ${name}`} onClick={onEdit} />}
         {canEdit && <Button size="sm" iconOnly icon={<KeyRound size={14} />} aria-label={`Change ${name}'s password`} onClick={onPassword} />}
-        {isAdmin && !p.is_me && (
+        {canManage && !p.is_me && (
           <Button
             size="sm"
             variant="danger"
@@ -275,13 +286,14 @@ function mailto(invite: Invite, inviter: string): string {
   return `mailto:${encodeURIComponent(invite.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-function InviteDialog({ onClose }: { onClose: () => void }) {
+function InviteDialog({ superAdmin, onClose }: { superAdmin: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const me = useMe();
   const toast = useToast();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [join, setJoin] = useState(false);
+  // Whoever runs a library invites people into it; only a super admin makes a new library.
+  const [join, setJoin] = useState(!superAdmin);
   const [shareKeys, setShareKeys] = useState(false);
   const [admin, setAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -359,6 +371,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
             <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoCapitalize="none" />
           </label>
         </div>
+        {superAdmin ? (
         <div className="field">
           <span>Which library?</span>
           <div className="choices">
@@ -374,6 +387,9 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
             </label>
           </div>
         </div>
+        ) : (
+          <Note tone="info">They'll share {me?.household_name ?? "your library"}: the same Audible books, podcasts and Yoto cards as you.</Note>
+        )}
         {!join && (
           <label className="check">
             <input type="checkbox" checked={shareKeys} onChange={(e) => setShareKeys(e.target.checked)} />
@@ -383,6 +399,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
             </span>
           </label>
         )}
+        {superAdmin && (
         <label className="check">
           <input type="checkbox" checked={admin} onChange={(e) => setAdmin(e.target.checked)} />
           <span>
@@ -390,6 +407,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
             <small className="muted" style={{ display: "block" }}>They could invite and remove people, and change anyone's password.</small>
           </span>
         </label>
+        )}
         {error && <Note tone="error">{error}</Note>}
       </div>
     </Modal>
@@ -398,7 +416,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
 
 // ---------- editing ----------
 
-function PersonDialog({ person, isAdmin, households, onClose }: { person: Person | null; isAdmin: boolean; households: Household[]; onClose: () => void }) {
+function PersonDialog({ person, isAdmin, manages, households, onClose }: { person: Person | null; isAdmin: boolean; manages: boolean; households: Household[]; onClose: () => void }) {
   const qc = useQueryClient();
   const me = useMe();
   const toast = useToast();
@@ -406,6 +424,7 @@ function PersonDialog({ person, isAdmin, households, onClose }: { person: Person
   const [firstName, setFirstName] = useState(person?.first_name ?? "");
   const [email, setEmail] = useState(person?.email ?? "");
   const [admin, setAdmin] = useState(person?.is_admin ?? false);
+  const [runs, setRuns] = useState(person?.is_household_admin ?? false);
   const [password, setPassword] = useState("");
   const [household, setHousehold] = useState<number>(person?.household_id ?? me?.household_id ?? 0);
   const [error, setError] = useState("");
@@ -419,6 +438,7 @@ function PersonDialog({ person, isAdmin, households, onClose }: { person: Person
       first_name: firstName,
       email,
       ...(isAdmin ? { is_admin: admin, household_id: household || undefined } : {}),
+      ...(manages ? { is_household_admin: runs } : {}),
     };
     try {
       if (person) await api.patch(`/users/${person.id}`, body);
@@ -484,10 +504,16 @@ function PersonDialog({ person, isAdmin, households, onClose }: { person: Person
             <small>Moving someone takes them to that library's books and cards; their own Audible choice resets.</small>
           </label>
         )}
+        {manages && (
+          <label className="check">
+            <input type="checkbox" checked={runs} onChange={(e) => setRuns(e.target.checked)} />
+            Runs this library: can invite people into it, and change or remove the people in it
+          </label>
+        )}
         {isAdmin && (
           <label className="check">
             <input type="checkbox" checked={admin} onChange={(e) => setAdmin(e.target.checked)} />
-            Super admin: can invite and remove people and change their passwords
+            Super admin: can invite and remove people and change their passwords, in every library
           </label>
         )}
         {error && <Note tone="error">{error}</Note>}

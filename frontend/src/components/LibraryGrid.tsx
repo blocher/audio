@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { duration } from "../format";
 import { useUpdateParams } from "../hooks/listMemory";
+import { useListeningState } from "../hooks/listening";
 import { useFeatures } from "../hooks/session";
 import { useStars, type StarKind } from "../hooks/stars";
 import { usePlayer } from "../player";
@@ -31,6 +32,8 @@ export interface LibraryItem {
   inProgress?: boolean;
   finished?: boolean;
   sortDate: string;
+  /** When you last listened here (podcasts and folders you're partway through). */
+  listenedAt?: string;
   /** When the signed-in user starred it; undefined when they haven't. */
   starredAt?: string;
   /** Books only: what the Ask and Yoto buttons need. */
@@ -52,6 +55,7 @@ export function useLibraryItems() {
     queryFn: () => api.get<Collection[]>("/local/collections"),
   });
   const stars = useStars();
+  const listening = useListeningState();
 
   const items = useMemo<LibraryItem[]>(() => {
     const out: LibraryItem[] = [];
@@ -89,6 +93,8 @@ export function useLibraryItems() {
         source: "Podcast",
         ready: p.downloaded_count > 0,
         transcribed: p.transcribed_count > 0,
+        inProgress: listening.podcastInProgress(p.id),
+        listenedAt: listening.podcastListenedAt(p.id),
         sortDate: p.last_refreshed_at ?? "",
       });
     for (const c of folders.data ?? [])
@@ -104,12 +110,15 @@ export function useLibraryItems() {
         source: "Local folder",
         ready: c.mp3_count > 0,
         transcribed: c.transcribed_count > 0,
+        inProgress: listening.folderInProgress(c),
+        listenedAt: listening.folderInProgress(c) ? listening.folderListenedAt(c.id) : undefined,
+        progress: listening.folderHeard(c.id) ? listening.folderHeard(c.id) / Math.max(c.track_count, 1) : undefined,
         sortDate: c.created_at,
       });
     for (const item of out) item.starredAt = stars.starredAt(item.kind, item.id);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [books.data, podcasts.data, folders.data, stars.data]);
+  }, [books.data, podcasts.data, folders.data, stars.data, listening]);
 
   return {
     items,

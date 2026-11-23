@@ -7,7 +7,7 @@ import { RESTORE, listHref } from "../hooks/listMemory";
 import SendToYoto from "../components/SendToYoto";
 import { AskPanel } from "../components/Ask";
 import { TranscriptView } from "../components/Listen";
-import { TrackStatus, queueFor } from "../components/TrackList";
+import { ListenedPill, TrackStatus, queueFor } from "../components/TrackList";
 import { BitratePicker, DownsizeDialog, TranscribeDialog } from "../components/Tools";
 import { StarButton } from "../components/StarButton";
 import { Button, Cover, Modal, Note, Spinner, errorText, useToast } from "../components/ui";
@@ -181,6 +181,7 @@ export default function PodcastDetail() {
                   {e.duration_ms > 0 && <span>{duration(e.duration_ms)}</span>}
                   {e.status === "downloading" && <span className="pill honey">Downloading…</span>}
                   {e.status === "failed" && <span className="pill berry">Download failed</span>}
+                  {track && <ListenedPill trackId={track.id} durationMs={track.duration_ms} />}
                   {track && <TrackStatus track={track} />}
                 </div>
               </div>

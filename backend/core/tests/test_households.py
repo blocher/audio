@@ -101,13 +101,12 @@ def test_invites_are_emailed_when_a_mail_server_is_set_up(client, ben, settings)
     assert re.search(r"/invite/[\w-]+", message.body).group(0) in sent["invite"]["link"]
 
 
-def test_only_super_admins_invite(client, django_user_model):
+def test_someone_who_doesnt_run_the_library_cant_invite(client, django_user_model):
+    django_user_model.objects.create_user("mum", password=PW)  # first in, so she runs it
     kid = django_user_model.objects.create_user("kid", password=PW)
     client.force_login(kid)
-    assert (
-        client.post("/api/users/invites", {"email": "x@example.com"}, content_type="application/json").status_code
-        == 403
-    )
+    body = {"email": "x@example.com", "join_my_library": True}
+    assert client.post("/api/users/invites", body, content_type="application/json").status_code == 403
     assert client.get("/api/users/invites").status_code == 403
 
 
@@ -327,27 +326,92 @@ def test_leftovers_can_be_cleaned_up(client, ben, household, django_user_model):
     assert client.delete(f"/api/users/invites/{old.pk}").status_code == 200
 
 
-def test_only_super_admins_add_or_move_people(client, django_user_model):
-    """Someone who isn't a super admin can't bring anyone in, to their own library or another, or move anyone."""
-    from core.models import Household
+def test_household_admins_manage_only_their_own_library(client, django_user_model):
+    """The first person in a library runs it: they invite into it and manage its people, and nothing else."""
+    from core.models import Household, Invite, Member
 
+    mum = django_user_model.objects.create_user("mum", password=PW)  # first in this library, so she runs it
     kid = django_user_model.objects.create_user("kid", password=PW)
-    gran = django_user_model.objects.create_user("gran", password=PW)
+    boss = django_user_model.objects.create_superuser("boss", password=PW)  # a super admin in the same library
     elsewhere = Household.objects.create(name="Elsewhere")
-    client.force_login(kid)
-    for join in (True, False):
-        body = {"email": "x@example.com", "join_my_library": join}
-        assert client.post("/api/users/invites", body, content_type="application/json").status_code == 403
-    person = {"username": "new", "password": PW}
-    assert client.post("/api/users", person, content_type="application/json").status_code == 403
-    body = {**person, "household_id": elsewhere.pk}
-    assert client.post("/api/users", body, content_type="application/json").status_code == 403
-    move = {"household_id": elsewhere.pk}
-    for who in (gran, kid):
-        assert client.patch(f"/api/users/{who.pk}", move, content_type="application/json").status_code == 403
+    stranger = django_user_model.objects.create_user("stranger", password=PW)
+    Member.objects.filter(user=stranger).update(household=elsewhere)
+    assert Member.objects.get(user=mum).is_household_admin and not Member.objects.get(user=kid).is_household_admin
+    client.force_login(mum)
+    json = "application/json"
+
+    # Invites: into her own library only, never a new library, shared keys or super admin.
+    ok = client.post("/api/users/invites", {"email": "gran@example.com", "join_my_library": True}, content_type=json)
+    assert ok.status_code == 200
+    for bad in ({"join_my_library": False}, {"join_my_library": True, "make_admin": True}):
+        res = client.post("/api/users/invites", {"email": "y@example.com", **bad}, content_type=json)
+        assert res.status_code == 403
+    theirs = Invite.objects.create(
+        email="z@example.com", token="t", household=elsewhere, expires_at=ok.json()["invite"]["expires_at"]
+    )
+    assert [i["email"] for i in client.get("/api/users/invites").json()] == ["gran@example.com"]
+    assert client.post(f"/api/users/invites/{theirs.pk}/resend").status_code == 404
+    assert client.delete(f"/api/users/invites/{theirs.pk}").status_code == 404
+
+    # People in her library: edit, reset a password, hand on the job; but not a super admin, and nobody elsewhere.
+    assert client.patch(f"/api/users/{kid.pk}", {"first_name": "Kiddo"}, content_type=json).status_code == 200
     assert (
-        client.patch(
-            f"/api/users/households/{elsewhere.pk}", {"name": "Mine"}, content_type="application/json"
+        client.post(
+            f"/api/users/{kid.pk}/password", {"password": "kids-new-password-9"}, content_type=json
         ).status_code
+        == 200
+    )
+    for who in (boss, stranger):
+        assert client.patch(f"/api/users/{who.pk}", {"first_name": "X"}, content_type=json).status_code == 403
+        assert (
+            client.post(
+                f"/api/users/{who.pk}/password", {"password": "taken-over-pass-1"}, content_type=json
+            ).status_code
+            == 403
+        )
+        assert client.delete(f"/api/users/{who.pk}").status_code == 403
+    for bad in ({"is_admin": True}, {"household_id": elsewhere.pk}):
+        assert client.patch(f"/api/users/{kid.pk}", bad, content_type=json).status_code == 403
+    assert client.patch(f"/api/users/{kid.pk}", {"is_household_admin": True}, content_type=json).status_code == 200
+
+    # Adding someone directly: into her library, never as a super admin or elsewhere.
+    person = {"username": "new", "password": PW}
+    assert client.post("/api/users", {**person, "is_admin": True}, content_type=json).status_code == 403
+    assert client.post("/api/users", {**person, "household_id": elsewhere.pk}, content_type=json).status_code == 403
+    assert (
+        client.post("/api/users", person, content_type=json).json()["household_id"]
+        == Member.objects.get(user=mum).household_id
+    )
+
+    # Her library can be renamed by her; nobody else's.
+    assert (
+        client.patch(f"/api/users/households/{elsewhere.pk}", {"name": "Mine"}, content_type=json).status_code == 403
+    )
+    assert client.delete(f"/api/users/{kid.pk}").status_code == 200
+    stranger.refresh_from_db()
+    assert Household.objects.filter(pk=elsewhere.pk).exists()
+
+
+def test_people_who_dont_run_the_library_manage_only_themselves(client, django_user_model):
+    django_user_model.objects.create_user("mum", password=PW)
+    kid = django_user_model.objects.create_user("kid", password=PW)
+    sib = django_user_model.objects.create_user("sib", password=PW)
+    client.force_login(kid)
+    json = "application/json"
+    assert client.patch(f"/api/users/{kid.pk}", {"is_household_admin": True}, content_type=json).status_code == 403
+    assert client.patch(f"/api/users/{sib.pk}", {"first_name": "X"}, content_type=json).status_code == 403
+    assert (
+        client.post(f"/api/users/{sib.pk}/password", {"password": "taken-over-pass-1"}, content_type=json).status_code
         == 403
     )
+    assert client.delete(f"/api/users/{sib.pk}").status_code == 403
+    assert client.post("/api/users", {"username": "new", "password": PW}, content_type=json).status_code == 403
+    own = client.patch(f"/api/users/{kid.pk}", {"first_name": "Kiddo"}, content_type=json)
+    assert own.status_code == 200 and own.json()["is_household_admin"] is False
+
+
+def test_the_last_household_admin_stays(client, django_user_model):
+    mum = django_user_model.objects.create_user("mum", password=PW)
+    client.force_login(mum)
+    res = client.patch(f"/api/users/{mum.pk}", {"is_household_admin": False}, content_type="application/json")
+    assert res.status_code == 400

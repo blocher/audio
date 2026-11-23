@@ -9,9 +9,10 @@ export default function Shelf() {
   const library = useLibraryItems();
   useListMemory(!library.loading);
   const starred = library.items.filter((i) => i.starredAt).sort((a, b) => b.starredAt!.localeCompare(a.starredAt!));
+  // Most recently listened here first; audiobooks (whose place comes from Audible) after, furthest along first.
   const partway = library.items
     .filter((i) => i.inProgress && !i.starredAt)
-    .sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0));
+    .sort((a, b) => (b.listenedAt ?? "").localeCompare(a.listenedAt ?? "") || (b.progress ?? 0) - (a.progress ?? 0));
   return (
     <>
       <PageHead title="My Shelf" lede="What you've starred and what you're partway through. Just yours; everyone has their own." />
@@ -27,13 +28,13 @@ export default function Shelf() {
             </Link>
           }
         >
-          Tap the <Star size={14} style={{ verticalAlign: "-2px" }} /> on any book, podcast or folder to keep it here. Audiobooks
-          you're partway through on Audible show up here too.
+          Tap the <Star size={14} style={{ verticalAlign: "-2px" }} /> on any book, podcast or folder to keep it here. What you're
+          partway through shows up here too: audiobooks from Audible, and podcasts and files you play here.
         </Empty>
       ) : (
         <>
           <ShelfSection icon={<Star size={18} />} title="Starred" items={starred} empty="Tap the star on anything in your library to keep it here." />
-          <ShelfSection icon={<Hourglass size={18} />} title="Partway through" items={partway} empty="Audiobooks you've started on Audible show up here." />
+          <ShelfSection icon={<Hourglass size={18} />} title="Partway through" items={partway} empty="Audiobooks you've started on Audible, and podcasts and files you've started here, show up here." />
         </>
       )}
     </>

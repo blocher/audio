@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Link2, Mic, Plus, Rss, Search, Star } from "lucide-react";
+import { Download, FileText, Hourglass, Link2, Mic, Plus, Rss, Search, Star } from "lucide-react";
+import { useListeningState } from "../hooks/listening";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -15,8 +16,10 @@ export default function Podcasts() {
   const podcasts = useQuery({ queryKey: ["podcasts"], queryFn: () => api.get<Podcast[]>("/podcasts") });
   const [adding, setAdding] = useState(false);
   const stars = useStars();
+  const listening = useListeningState();
   const filters: Filter<Podcast>[] = [
     { key: "starred", label: "Starred", icon: <Star size={15} />, test: (p) => stars.isStarred("podcast", p.id) },
+    { key: "listening", label: "In progress", icon: <Hourglass size={15} />, test: (p) => listening.podcastInProgress(p.id) },
     { key: "transcribed", label: "Has transcripts", icon: <FileText size={15} />, test: (p) => p.transcribed_count > 0 },
     { key: "saved", label: "Has saved episodes", icon: <Download size={15} />, test: (p) => p.downloaded_count > 0 },
   ];

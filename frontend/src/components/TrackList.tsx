@@ -2,6 +2,21 @@ import { CheckCircle2, FileText, Pause, Play } from "lucide-react";
 import { clock, duration, bytes } from "../format";
 import { usePlayer, type QueueItem } from "../player";
 import type { Track } from "../types";
+import { partway, useListeningState } from "../hooks/listening";
+
+/** "12 min left" or "Played", from where you got to listening here. */
+export function ListenedPill({ trackId, durationMs }: { trackId: number; durationMs: number }) {
+  const p = useListeningState().track(trackId);
+  if (!p) return null;
+  if (p.finished)
+    return (
+      <span className="pill sage">
+        <CheckCircle2 size={11} /> Played
+      </span>
+    );
+  if (!partway(p)) return null;
+  return <span className="pill honey">{duration(Math.max(0, durationMs - p.position_ms))} left</span>;
+}
 
 /** Player queue for a work. Book chapters know their offset in the book; other tracks are laid end to end. */
 export function queueFor(tracks: Track[], meta: { subtitle: string; cover?: string; link?: string }): QueueItem[] {
@@ -84,6 +99,7 @@ export default function TrackList({
               <div className="title truncate">{t.title}</div>
               <div className="sub">
                 <span className="tabular">{t.start_ms ? `starts ${clock(t.start_ms)} · ` : ""}{duration(t.duration_ms)}</span>
+                {t.source !== "book" && <ListenedPill trackId={t.id} durationMs={t.duration_ms} />}
                 <TrackStatus track={t} />
               </div>
             </div>

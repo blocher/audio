@@ -1,7 +1,10 @@
 """The people who can sign in, the households they belong to, and invitations.
 
-Super admins (``is_superuser``) see and manage everyone and invite new people. Everyone else sees the people in their
-own household and manages only themselves.
+Super admins (``is_superuser``) see and manage everyone and invite new people anywhere. A household administrator
+(``Member.is_household_admin``, the first person in each household) does the same for their own household only:
+invites people into it, adds, edits, resets passwords for and removes the people in it, but never a super admin,
+never anyone elsewhere, and never super admin status or moves between households. Everyone else sees the people in
+their own household and manages only themselves.
 """
 
 import logging
@@ -49,11 +52,16 @@ class PersonOut(Schema):
     audible_accounts: list[AccountRef]
     features: list[str]
     onboarded: bool
+    is_household_admin: bool = False
     is_me: bool = False
 
     @staticmethod
     def resolve_is_admin(obj) -> bool:
         return obj.is_superuser
+
+    @staticmethod
+    def resolve_is_household_admin(obj) -> bool:
+        return membership(obj).is_household_admin
 
     @staticmethod
     def resolve_audible_account_id(obj) -> int | None:
@@ -88,6 +96,7 @@ class PersonIn(Schema):
     email: str = ""
     password: str
     is_admin: bool = False
+    is_household_admin: bool = False
     audible_account_id: int | None = None
     household_id: int | None = None  # default: the admin's own household
 
@@ -97,6 +106,7 @@ class PersonPatch(Schema):
     first_name: str | None = None
     email: str | None = None
     is_admin: bool | None = None
+    is_household_admin: bool | None = None
     # null clears it (back to the first connected account); leaving it out leaves it alone.
     audible_account_id: int | None = None
     household_id: int | None = None  # move them to another household (super admins only)
@@ -116,11 +126,44 @@ def _people():
     return User.objects.select_related("audible_listener", "member__household")
 
 
+def _runs_household(user) -> int | None:
+    """The household this person administers, if they're a household administrator."""
+    member = Member.objects.filter(user=user, is_household_admin=True).values_list("household_id", flat=True).first()
+    return member
+
+
+def _require_people_admin(request) -> int | None:
+    """A super admin (returns None: anywhere) or a household administrator (returns their household)."""
+    if request.user.is_superuser:
+        return None
+    if (hid := _runs_household(request.user)) is None:
+        raise HttpError(403, "Only a household administrator can do that")
+    return hid
+
+
+def _manageable(request, user_id: int):
+    """Someone else the signed-in person may manage: anyone for a super admin; for a household administrator, people
+    in their own household who aren't super admins. Anyone else gets the same 403, so nothing leaks about who
+    exists."""
+    hid = _require_people_admin(request)
+    user = _people().filter(pk=user_id).first()
+    if hid is None and user is not None:
+        return user
+    if user is None or user.is_superuser or not Member.objects.filter(user=user, household_id=hid).exists():
+        raise HttpError(403, "You can only manage people in your own library")
+    return user
+
+
 def _person(request, user_id: int):
-    """The user to act on: anyone for a super admin, only yourself otherwise."""
-    if user_id != request.user.pk:
-        _require_admin(request)
-    return get_object_or_404(_people(), pk=user_id)
+    """The user to act on: yourself, or someone you manage."""
+    if user_id == request.user.pk:
+        return get_object_or_404(_people(), pk=user_id)
+    return _manageable(request, user_id)
+
+
+def _other_household_admins(user) -> bool:
+    hid = Member.objects.filter(user=user).values_list("household_id", flat=True).first()
+    return Member.objects.filter(household_id=hid, is_household_admin=True).exclude(user=user).exists()
 
 
 def _out(request, user):
@@ -189,7 +232,9 @@ def list_people(request):
 @router.post("", response=PersonOut)
 @transaction.atomic
 def add_person(request, payload: PersonIn):
-    _require_admin(request)
+    runs = _require_people_admin(request)
+    if runs is not None and (payload.is_admin or (payload.household_id and payload.household_id != runs)):
+        raise HttpError(403, "You can only add people to your own library")
     household = get_object_or_404(Household, pk=payload.household_id or household_id(request))
     user = User(
         username=_clean_username(payload.username),
@@ -201,7 +246,11 @@ def add_person(request, payload: PersonIn):
     check_password_strength(payload.password, user)
     user.set_password(payload.password)
     user.save()
-    Member.objects.update_or_create(user=user, defaults={"household": household, "onboarded_at": timezone.now()})
+    member, _ = Member.objects.update_or_create(
+        user=user, defaults={"household": household, "onboarded_at": timezone.now()}
+    )
+    if payload.is_household_admin and not member.is_household_admin:
+        Member.objects.filter(pk=member.pk).update(is_household_admin=True)
     _set_audible_account(user, payload.audible_account_id)
     return _out(request, user)
 
@@ -222,6 +271,15 @@ def update_person(request, user_id: int, payload: PersonPatch):
         if not payload.is_admin and not _other_admins(user):
             raise HttpError(400, "Someone has to stay a super admin")
         user.is_superuser = user.is_staff = bool(payload.is_admin)
+    if "is_household_admin" in fields and payload.is_household_admin != membership(user).is_household_admin:
+        # Only someone who runs this household (or a super admin) hands it on; nobody makes themselves one.
+        runs = _require_people_admin(request)
+        if runs is not None and runs != membership(user).household_id:
+            raise HttpError(403, "You can only manage people in your own library")
+        if not payload.is_household_admin and not _other_household_admins(user):
+            raise HttpError(400, "Someone has to stay in charge of this library")
+        Member.objects.filter(user=user).update(is_household_admin=bool(payload.is_household_admin))
+        user._member_cache = None
     user.save()
     if fields.get("household_id") and fields["household_id"] != membership(user).household_id:
         _require_admin(request)
@@ -252,11 +310,11 @@ def set_password(request, user_id: int, payload: PasswordIn):
 @router.delete("/{int:user_id}")
 def remove_person(request, user_id: int, everything: bool = False):
     """Remove a login. With ``everything``, also their conversations and invitations, and their library (books,
-    downloads, podcasts, folders, cards, keys) when nobody else shares it: as if they had never been here."""
-    _require_admin(request)
-    user = get_object_or_404(User, pk=user_id)
-    if user.pk == request.user.pk:
+    downloads, podcasts, folders, cards, keys) when nobody else shares it: as if they had never been here. A household
+    administrator only removes people from their own household, which they share, so its library always stays."""
+    if user_id == request.user.pk:
         raise HttpError(400, "You can't remove yourself")
+    user = _manageable(request, user_id)
     if not everything:
         # Their login goes, and with it any invitation to them, so it doesn't linger on the dashboard.
         Invite.objects.filter(accepted_user=user).delete()
@@ -305,9 +363,11 @@ class HouseholdPatch(Schema):
 
 @router.patch("/households/{hid}", response=HouseholdOut)
 def update_household(request, hid: int, payload: HouseholdPatch):
-    household = get_object_or_404(Household, pk=hid)
     if hid != household_id(request) or payload.share_my_ai_keys is not None:
         _require_admin(request)
+    elif _require_people_admin(request) not in (None, hid):
+        raise HttpError(403, "Only a household administrator can rename the library")
+    household = get_object_or_404(Household, pk=hid)
     if payload.name is not None and payload.name.strip():
         household.name = payload.name.strip()[:150]
     if payload.share_my_ai_keys is not None and hid != household_id(request):
@@ -375,9 +435,7 @@ def send_invite(invite: Invite) -> tuple[bool, str]:
         return False, ""
     inviter = invite.invited_by.first_name or invite.invited_by.username if invite.invited_by else "Someone"
     greeting = f"Hi {invite.name}," if invite.name else "Hi,"
-    what = (
-        f"to share {invite.household.name}" if invite.household else "to set up your own audio library"
-    )
+    what = f"to share {invite.household.name}" if invite.household else "to set up your own audio library"
     body = (
         f"{greeting}\n\n"
         f"{inviter} has invited you {what} on Audio, a private family audiobook app. You can use it to put "
@@ -400,15 +458,25 @@ def _pending_invites():
     return Invite.objects.filter(accepted_at__isnull=True).select_related("household", "invited_by")
 
 
+def _invites_for(request):
+    """The invitations the signed-in person may see and act on: all for a super admin, their household's otherwise."""
+    runs = _require_people_admin(request)
+    invites = _pending_invites()
+    return invites if runs is None else invites.filter(household_id=runs)
+
+
 @router.get("/invites", response=list[InviteOut])
 def list_invites(request):
-    _require_admin(request)
-    return _pending_invites()
+    return _invites_for(request)
 
 
 @router.post("/invites", response=InviteSent)
 def create_invite(request, payload: InviteIn):
-    _require_admin(request)
+    runs = _require_people_admin(request)
+    if runs is not None and (not payload.join_my_library or payload.share_ai_keys or payload.make_admin):
+        raise HttpError(
+            403, "You can invite people to share your library. A new library of their own needs a super admin."
+        )
     email = payload.email.strip().lower()
     try:
         validate_email(email)
@@ -434,8 +502,9 @@ def create_invite(request, payload: InviteIn):
 
 @router.post("/invites/{invite_id}/resend", response=InviteSent)
 def resend_invite(request, invite_id: int):
-    _require_admin(request)
-    invite = get_object_or_404(_pending_invites(), pk=invite_id)
+    invite = _invites_for(request).filter(pk=invite_id).first()
+    if invite is None:
+        raise HttpError(404, "No such invitation")
     invite.expires_at = timezone.now() + timedelta(days=settings.INVITE_DAYS)
     invite.save(update_fields=["expires_at", "updated_at"])
     emailed, error = send_invite(invite)
@@ -444,7 +513,8 @@ def resend_invite(request, invite_id: int):
 
 @router.delete("/invites/{invite_id}")
 def cancel_invite(request, invite_id: int):
-    _require_admin(request)
+    runs = _require_people_admin(request)
     # Waiting or accepted: either way the record goes for good (an accepted one's login is untouched).
-    get_object_or_404(Invite, pk=invite_id).delete()
+    invites = Invite.objects.all() if runs is None else Invite.objects.filter(household_id=runs)
+    get_object_or_404(invites, pk=invite_id).delete()
     return {"ok": True}

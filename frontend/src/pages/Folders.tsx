@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, FileText, Folder, FolderInput, HardDrive, Plus, Search, Star, Upload } from "lucide-react";
+import { CheckCircle2, FileText, Folder, FolderInput, HardDrive, Hourglass, Plus, Search, Star, Upload } from "lucide-react";
+import { useListeningState } from "../hooks/listening";
 import { useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -17,8 +18,10 @@ export default function Folders() {
   const folders = useQuery({ queryKey: ["collections"], queryFn: () => api.get<Collection[]>("/local/collections") });
   const [importing, setImporting] = useState(false);
   const stars = useStars();
+  const listening = useListeningState();
   const filters: Filter<Collection>[] = [
     { key: "starred", label: "Starred", icon: <Star size={15} />, test: (c) => stars.isStarred("folder", c.id) },
+    { key: "listening", label: "In progress", icon: <Hourglass size={15} />, test: (c) => listening.folderInProgress(c) },
     { key: "transcribed", label: "Has transcripts", icon: <FileText size={15} />, test: (c) => c.transcribed_count > 0 },
     { key: "mp3", label: "MP3 ready", icon: <CheckCircle2 size={15} />, test: (c) => c.mp3_count > 0 },
   ];
