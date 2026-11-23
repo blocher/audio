@@ -8,6 +8,7 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
+import { Link } from "react-router-dom";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "sage" | "ghost" | "danger";
@@ -128,25 +129,51 @@ interface Toast {
   id: number;
   text: string;
   tone: "info" | "error";
+  link?: ToastLink;
 }
 
-const ToastContext = createContext<(text: string, tone?: "info" | "error") => void>(() => undefined);
+/** A follow-up for a toast, such as "See details" on Activity. */
+export interface ToastLink {
+  label: string;
+  to: string;
+}
+
+type PushToast = (text: string, tone?: "info" | "error", link?: ToastLink) => void;
+
+const ToastContext = createContext<PushToast>(() => undefined);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const push = useCallback((text: string, tone: "info" | "error" = "info") => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, text, tone }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === "error" ? 8000 : 4000);
-  }, []);
+  const close = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+  const push = useCallback<PushToast>(
+    (text, tone = "info", link) => {
+      const id = Date.now() + Math.random();
+      setToasts((t) => [...t, { id, text, tone, link }]);
+      // Problems stay up long enough to read (and can be closed); good news goes quickly.
+      window.setTimeout(() => close(id), tone === "error" ? 15000 : 4000);
+    },
+    [close],
+  );
   return (
     <ToastContext.Provider value={push}>
       {children}
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.tone}`}>
+          <div key={t.id} className={`toast ${t.tone}`} role={t.tone === "error" ? "alert" : undefined}>
             {t.tone === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
-            <span>{t.text}</span>
+            <span className="toast-text">
+              {t.text}
+              {t.link && (
+                <Link className="toast-link" to={t.link.to} onClick={() => close(t.id)}>
+                  {t.link.label}
+                </Link>
+              )}
+            </span>
+            {t.tone === "error" && (
+              <button type="button" className="toast-close" aria-label="Close" onClick={() => close(t.id)}>
+                <X size={15} />
+              </button>
+            )}
           </div>
         ))}
       </div>

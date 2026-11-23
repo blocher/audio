@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from core import audio, packing
 from core.models import Track
+from core.tenancy import carrying_household
 
 from . import client
 from .models import Playlist, PlaylistItem, Upload, YotoAccount
@@ -177,6 +178,7 @@ def upload_items(api: client.Api, items: list[PlaylistItem], use_optimized: bool
             connection.close()  # each worker thread has its own database connection
 
     pool = ThreadPoolExecutor(max_workers=min(UPLOAD_THREADS, len(items)), thread_name_prefix="yoto-upload")
+    work = carrying_household(work)
     futures = {pool.submit(work, n, item): n for n, item in enumerate(items)}
     pending = set(futures)
     try:

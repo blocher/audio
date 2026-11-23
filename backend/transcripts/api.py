@@ -213,6 +213,10 @@ def dictate(request, audio: UploadedFile = File(...), hint: str = Form("")):  # 
             text = stt.transcribe_clip(Path(fh.name), hint.strip())
         except RuntimeError as exc:
             raise HttpError(400, str(exc)) from exc
+        except Exception as exc:
+            if reason := ai.explain(exc):
+                raise HttpError(502, reason) from exc
+            raise
     return {"text": text}
 
 
@@ -254,8 +258,9 @@ def ask_question(request, cid: int, payload: AskIn):
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # surface to the chat UI rather than cutting the stream silently
             # Kept in the history next to the question it answers; never sent back to the model.
-            Message.objects.create(conversation=conversation, role="error", content=str(exc))
-            yield json.dumps({"type": "error", "error": str(exc)}) + "\n"
+            reason = ai.explain(exc) or str(exc)
+            Message.objects.create(conversation=conversation, role="error", content=reason)
+            yield json.dumps({"type": "error", "error": reason}) + "\n"
 
     response = StreamingHttpResponse(events(), content_type="application/x-ndjson")
     response["Cache-Control"] = "no-cache"

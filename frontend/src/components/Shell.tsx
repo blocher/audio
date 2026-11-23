@@ -14,7 +14,7 @@ import {
   SquareStack,
   Star,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useScrollTopOnNavigate } from "../hooks/listMemory";
@@ -59,6 +59,19 @@ export default function Shell({ user, children }: { user: User; children: ReactN
     for (const key of ["service", "connected", "error"]) params.delete(key);
     navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
   }, [location.search, location.pathname, navigate, qc, toast]);
+
+  // A background job that fails says so wherever you are, in plain words, with the details a tap away.
+  const watched = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    if (!jobs.data) return;
+    const active = new Set(jobs.data.filter((j) => j.status === "queued" || j.status === "running").map((j) => j.id));
+    for (const j of jobs.data) {
+      if (watched.current?.has(j.id) && j.status === "failed") {
+        toast(`${j.title} didn't finish. ${j.message || "Something went wrong."}`, "error", { label: "See details", to: "/activity" });
+      }
+    }
+    watched.current = active;
+  }, [jobs.data, toast]);
 
   // The menu follows how the site is used: your audio (all of it, then each kind), then the Yoto cards made from it.
   // Everyone gets the whole menu; what they picked in the setup wizard only shapes setup and Home.

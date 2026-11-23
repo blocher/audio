@@ -13,6 +13,7 @@ from celery.exceptions import Ignore
 from django.db import models
 from django.utils import timezone
 
+from . import ai
 from .models import Job
 from .tenancy import current_household_id, use_household
 
@@ -93,7 +94,7 @@ def running(job_id: int):
         Job.objects.filter(pk=job.pk).update(
             status=Job.Status.FAILED,
             error=f"{exc}\n\n{traceback.format_exc()}"[-8000:],
-            message=str(exc)[:500],
+            message=(ai.explain(exc) or str(exc))[:500],
             finished_at=timezone.now(),
         )
         raise

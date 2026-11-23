@@ -75,7 +75,7 @@ export default function Yoto() {
   // ?new=1 opens straight on "pick several to put on cards".
   const [picking, setPicking] = useState(params.get("new") === "1");
   const [planGroups, setPlanGroups] = useState<PackGroup[] | null>(null);
-  const [following, setFollowing] = useState<{ id: number; title: string } | null>(null);
+  const [following, setFollowing] = useState<{ id: number; title: string; batch?: string; playlistIds?: number[] } | null>(null);
   const [sendingKey, setSendingKey] = useState("");
 
   const connected = (accounts.data ?? []).some((a) => a.connected);
@@ -99,10 +99,11 @@ export default function Yoto() {
   async function send(key: string, items: Playlist[], title: string) {
     setSendingKey(key);
     try {
-      const body = key.startsWith("single-") ? { playlist_ids: items.map((p) => p.id) } : { batch: key };
+      const single = key.startsWith("single-");
+      const body = single ? { playlist_ids: items.map((p) => p.id) } : { batch: key };
       const job = await api.post<Job>("/yoto/sync", body);
       jobs.refetch();
-      setFollowing({ id: job.id, title });
+      setFollowing({ id: job.id, title, ...(single ? { playlistIds: items.map((p) => p.id) } : { batch: key }) });
     } catch (e) {
       toast(errorText(e), "error");
     } finally {
@@ -225,7 +226,7 @@ export default function Yoto() {
         />
       )}
       {planGroups && <SendToYoto source={{ kind: "groups", groups: planGroups }} returnTo="/yoto" onClose={() => setPlanGroups(null)} />}
-      {following && <SendProgressModal jobId={following.id} title={following.title} onClose={() => setFollowing(null)} />}
+      {following && <SendProgressModal jobId={following.id} title={following.title} batch={following.batch} playlistIds={following.playlistIds} onClose={() => setFollowing(null)} />}
     </>
   );
 }

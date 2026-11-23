@@ -13,7 +13,10 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from django.db import connection
+
 from core import ai, audio
+from core.tenancy import carrying_household
 
 LONG_CHUNK_MS = 10 * 60 * 1000
 SHORT_CHUNK_MS = 2 * 60 * 1000
@@ -205,7 +208,10 @@ def transcribe_file(
                     str(chunk),
                 ]
             )
-            segments = transcribe_chunk(provider, model, chunk, end - start)
+            try:
+                segments = transcribe_chunk(provider, model, chunk, end - start)
+            finally:
+                connection.close()  # looking up the key opened this thread's own database connection
             chunk.unlink(missing_ok=True)
             done += 1
             if on_progress:
@@ -214,7 +220,7 @@ def transcribe_file(
 
         # Groq's free tier meters audio-seconds per hour; stay gentle there.
         with ThreadPoolExecutor(max_workers=2 if provider == "groq" else 3) as pool:
-            results = list(pool.map(work, starts))
+            results = list(pool.map(carrying_household(work), starts))
     return provider, model, [s for chunk in results for s in chunk]
 
 

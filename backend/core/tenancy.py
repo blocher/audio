@@ -28,6 +28,17 @@ def use_household(household_id: int | None):
         _current.reset(token)
 
 
+def carrying_household(fn):
+    """``fn`` wrapped to run under the current household, for handing to worker threads (which start without it)."""
+    hid = current_household_id()
+
+    def run(*args, **kwargs):
+        with use_household(hid):
+            return fn(*args, **kwargs)
+
+    return run
+
+
 def membership(user):
     """The user's Member row, creating one the first time someone without a household signs in.
 

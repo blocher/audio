@@ -188,7 +188,7 @@ export default function PlaylistDetail() {
           {job && <JobLine job={job} />}
         </div>
       </section>
-      {following && <SendProgressModal jobId={following} title={p.title} onClose={() => setFollowing(null)} />}
+      {following && <SendProgressModal jobId={following} title={p.title} playlistIds={[p.id]} onClose={() => setFollowing(null)} />}
       {deleting && <DeletePlaylist playlist={p} onClose={() => setDeleting(false)} onDeleted={() => navigate("/yoto")} />}
       {adding && <SourcePicker addTo={{ title: p.title, freeBytes: limitMb * MIB - p.total_bytes }} onClose={() => setAdding(false)} onPicked={addTracks} />}
 

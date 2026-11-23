@@ -13,7 +13,7 @@ import { SendToYotoButton } from "../components/SendToYoto";
 import { StarButton } from "../components/StarButton";
 import { Button, Cover, Empty, Modal, Note, Progress, Spinner, Tabs, errorText, useToast } from "../components/ui";
 import { bytes, clock, date, duration, relative, stripHtml } from "../format";
-import { useAction, useActiveJob } from "../hooks/queries";
+import { useAction, useActiveJob, useLastFailure } from "../hooks/queries";
 import { useFeatures } from "../hooks/session";
 import { usePlayer } from "../player";
 import type { BookDetail as BookDetailT, Job } from "../types";
@@ -26,6 +26,7 @@ export default function BookDetail() {
   const player = usePlayer();
   const book = useQuery({ queryKey: ["books", id], queryFn: () => api.get<BookDetailT>(`/audible/books/${id}`) });
   const job = useActiveJob("book", Number(id));
+  const failed = useLastFailure("book", Number(id));
   // The tab lives in the URL so the library can link straight to Ask (?tab=ask) and back closes it on a phone.
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -202,7 +203,17 @@ export default function BookDetail() {
           </div>
 
           {job && <JobLine job={job} />}
-          {b.status === "failed" && !job && <div style={{ marginTop: 14 }}><Note tone="error">The last conversion failed. Check Activity for details, then try again.</Note></div>}
+          {!job && failed ? (
+            <div style={{ marginTop: 14, maxWidth: 620 }}>
+              <Note tone="error">
+                <strong>{failed.title} didn't finish.</strong> {failed.message || "Something went wrong."}{" "}
+                <Link to="/activity">See details</Link>
+              </Note>
+            </div>
+          ) : (
+            b.status === "failed" &&
+            !job && <div style={{ marginTop: 14 }}><Note tone="error">The last download failed. Check Activity for details, then try again.</Note></div>
+          )}
 
           {b.summary && (
             <div style={{ marginTop: 18 }}>

@@ -9,7 +9,7 @@ import { useDragSort } from "../hooks/dragSort";
 import { useActiveJob, useJobs } from "../hooks/queries";
 import { useOnboarding } from "../hooks/session";
 import { seasonGroups } from "../seasons";
-import type { Book, Job, PackGroup, PackOptions, PackPreview, PackStrategy, PodcastDetail, Track, YotoAccount } from "../types";
+import type { Book, Job, PackGroup, PackOptions, PackPreview, PackStrategy, Playlist, PodcastDetail, Track, YotoAccount } from "../types";
 import { usePresets } from "./Tools";
 import { Button, Meter, Modal, Note, Progress, Spinner, errorText, useToast } from "./ui";
 
@@ -81,15 +81,29 @@ export function useConnectYoto() {
 // ---------- what to do once it's there ----------
 
 /** The step people miss: the playlist is in the Yoto app's Library, waiting to be linked to a blank card. */
-export function YotoNextSteps({ title, compact, celebrate }: { title?: string; compact?: boolean; celebrate?: boolean }) {
+export function YotoNextSteps({ title, titles, compact, celebrate }: { title?: string; titles?: string[]; compact?: boolean; celebrate?: boolean }) {
+  const names = titles?.length ? titles : title ? [title] : [];
+  const q = (t: string) => <b>“{t}”</b>;
+  const find =
+    names.length === 0 ? (
+      "this playlist"
+    ) : names.length === 1 ? (
+      q(names[0])
+    ) : names.length === 2 ? (
+      <>
+        {q(names[0])} and {q(names[1])}
+      </>
+    ) : (
+      <>
+        {q(names[0])} through {q(names[names.length - 1])}
+      </>
+    );
   const steps = (
     <ol className="next-steps">
       <li>Open the <b>Yoto app</b> on your phone.</li>
+      <li>Tap <b>Library</b> and find {find}.</li>
       <li>
-        Tap <b>Library</b> and find {title ? <b>“{title}”</b> : "this playlist"}.
-      </li>
-      <li>
-        Tap it, then <b>Link to card</b>, and hold a blank Make Your Own card to your player.
+        Tap {names.length > 1 ? "each one" : "it"}, then <b>Link to card</b>, and hold a blank Make Your Own card to your player.
       </li>
     </ol>
   );
@@ -136,9 +150,31 @@ function Confetti() {
 // ---------- following the upload ----------
 
 /** Follows a send (or resend) job: progress while it runs, then "you're all set" or what went wrong. */
-function SendProgress({ jobId, title, onRetry }: { jobId: number; title: string; onRetry?: () => void }) {
+function SendProgress({
+  jobId,
+  title,
+  batch,
+  playlistIds,
+  onRetry,
+}: {
+  jobId: number;
+  title: string;
+  /** Which playlists the send made or resent, so "you're all set" names them as the Yoto app will. */
+  batch?: string;
+  playlistIds?: number[];
+  onRetry?: () => void;
+}) {
   const jobs = useJobs();
   const job = jobs.data?.find((j) => j.id === jobId);
+  const made = useQuery({
+    queryKey: ["playlists", "sent", batch ?? playlistIds?.join() ?? ""],
+    queryFn: () => api.get<Playlist[]>(batch ? `/yoto/playlists?batch=${encodeURIComponent(batch)}` : "/yoto/playlists"),
+    enabled: job?.status === "succeeded" && !!(batch || playlistIds?.length),
+  });
+  const titles = (made.data ?? [])
+    .filter((p) => !playlistIds || playlistIds.includes(p.id))
+    .map((p) => p.title)
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   if (!job || job.status === "queued" || job.status === "running")
     return (
       <div className="stack send-progress" style={{ "--gap": "14px" } as React.CSSProperties}>
@@ -153,7 +189,7 @@ function SendProgress({ jobId, title, onRetry }: { jobId: number; title: string;
         <Note tone="info">This takes a few minutes. You can close this window; it keeps going, and shows “On Yoto” when it's done.</Note>
       </div>
     );
-  if (job.status === "succeeded") return <YotoNextSteps title={title} celebrate />;
+  if (job.status === "succeeded") return made.isLoading ? <Spinner /> : <YotoNextSteps title={title} titles={titles} celebrate />;
   return (
     <div className="stack" style={{ "--gap": "12px" } as React.CSSProperties}>
       <Note tone="error">
@@ -169,7 +205,19 @@ function SendProgress({ jobId, title, onRetry }: { jobId: number; title: string;
 }
 
 /** A modal that only follows a job (e.g. "Send to Yoto" on cards already made). */
-export function SendProgressModal({ jobId, title, onClose }: { jobId: number; title: string; onClose: () => void }) {
+export function SendProgressModal({
+  jobId,
+  title,
+  batch,
+  playlistIds,
+  onClose,
+}: {
+  jobId: number;
+  title: string;
+  batch?: string;
+  playlistIds?: number[];
+  onClose: () => void;
+}) {
   const jobs = useJobs();
   const done = jobs.data?.find((j) => j.id === jobId)?.status === "succeeded";
   return (
@@ -182,7 +230,7 @@ export function SendProgressModal({ jobId, title, onClose }: { jobId: number; ti
         </Button>
       }
     >
-      <SendProgress jobId={jobId} title={title} />
+      <SendProgress jobId={jobId} title={title} batch={batch} playlistIds={playlistIds} />
     </Modal>
   );
 }
@@ -198,7 +246,7 @@ export type SendSource =
 function sourceTitle(source: SendSource, groups: PackGroup[]) {
   if (source.kind === "book") return source.book.title;
   if (source.kind === "podcast" || source.kind === "folder") return source.title;
-  return groups.length === 1 ? groups[0].title : `${groups.length} picks`;
+  return groups.length === 1 ? groups[0].title : suggestName(groups);
 }
 
 /** The tracks behind a source, fetched when the dialog opens. A book not downloaded yet has none: it's estimated. */
@@ -232,13 +280,15 @@ export default function SendToYoto({ source, onClose, returnTo }: { source: Send
   const existing = book?.yoto_playlist_ids ?? [];
   const [mode, setMode] = useState<"plan" | "existing">(existing.length ? "existing" : "plan");
   const [jobId, setJobId] = useState<number | null>(null);
+  const [sentName, setSentName] = useState("");
   // How to try again after a failure: the same request (a send carries its batch, so it reuses the same cards).
   const [again, setAgain] = useState<(() => Promise<Job>) | null>(null);
   const [batch] = useState(() => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join(""));
   const toast = useToast();
   const qc = useQueryClient();
-  const sent = (id: number, retry: () => Promise<Job>) => {
+  const sent = (id: number, retry: () => Promise<Job>, name = "") => {
     setJobId(id);
+    setSentName(name);
     setAgain(() => retry);
   };
   const retry = async () => {
@@ -279,7 +329,13 @@ export default function SendToYoto({ source, onClose, returnTo }: { source: Send
       }
     >
       {jobId ? (
-        <SendProgress jobId={jobId} title={title} onRetry={() => void retry()} />
+        <SendProgress
+          jobId={jobId}
+          title={sentName || title}
+          batch={mode === "plan" ? batch : undefined}
+          playlistIds={mode === "existing" ? book?.yoto_playlist_ids : undefined}
+          onRetry={() => void retry()}
+        />
       ) : mode === "existing" && book ? (
         <AlreadyMade book={book} onSent={sent} onNew={() => setMode("plan")} onClose={onClose} />
       ) : groupsQuery.isLoading ? (
@@ -372,7 +428,7 @@ function Plan({
   groups: PackGroup[];
   title: string;
   batch: string;
-  onSent: (id: number, retry: () => Promise<Job>) => void;
+  onSent: (id: number, retry: () => Promise<Job>, name?: string) => void;
   onClose: () => void;
   returnTo?: string;
 }) {
@@ -446,7 +502,7 @@ function Plan({
       const job = await request();
       qc.invalidateQueries({ queryKey: ["jobs"] });
       qc.invalidateQueries({ queryKey: ["books"] });
-      onSent(job.id, request);
+      onSent(job.id, request, several ? name : title);
     } catch (e) {
       toast(errorText(e), "error");
     } finally {

@@ -28,6 +28,13 @@ export function useActiveJob(targetType: string, targetId: number | undefined) {
   );
 }
 
+/** The newest job for a target when it failed (and nothing has run for it since), so its page can say why. */
+export function useLastFailure(targetType: string, targetId: number | undefined) {
+  const { data } = useJobs();
+  const latest = data?.find((j) => j.target_type === targetType && j.target_id === targetId && j.status !== "cancelled");
+  return latest?.status === "failed" ? latest : undefined;
+}
+
 /** Mutation that refreshes job polling and the listed query keys on success. */
 export function useAction<TIn = void, TOut = unknown>(fn: (input: TIn) => Promise<TOut>, invalidate: unknown[][] = []) {
   const qc = useQueryClient();

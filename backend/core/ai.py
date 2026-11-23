@@ -136,6 +136,42 @@ def configured(provider: str) -> bool:
 # ---------- clients ----------
 
 
+class MissingKey(RuntimeError):
+    pass
+
+
+def require_key(provider: str) -> str:
+    """The provider's key, or a plain explanation of what to do when this library has none."""
+    key = api_key(provider)
+    if not key:
+        label = PROVIDERS[provider].label
+        raise MissingKey(f"{label} isn't connected for this library. Connect it again in Settings.")
+    return key
+
+
+def explain(exc: BaseException) -> str | None:
+    """A plain-language reason for an AI provider's error, or None when it isn't one."""
+    status = getattr(exc, "status_code", None)
+    url = str(getattr(getattr(exc, "request", None), "url", "") or "")
+    name = next((p.label for p in PROVIDERS.values() if p.base_url and url.startswith(p.base_url)), None)
+    if name is None:
+        hosts = {"api.openai.com": "OpenAI", "api.anthropic.com": "Claude (Anthropic)", "googleapis.com": "Gemini"}
+        name = next((label for host, label in hosts.items() if host in url), "The AI service")
+    if status == 401:
+        return f"{name} turned down the key. Connect it again in Settings, then try again."
+    if status == 402:
+        return f"{name} says the account is out of credits. Add credits there, then try again."
+    if status == 403:
+        return f"{name} refused the request. Check the account in Settings, then try again."
+    if status == 429:
+        return f"{name} is busy or limiting requests right now. Try again in a few minutes."
+    if status is not None and status >= 500:
+        return f"{name} had a problem on its end. Try again in a few minutes."
+    if type(exc).__name__ in {"APIConnectionError", "APITimeoutError"}:
+        return f"Couldn't reach {name}. Try again in a few minutes."
+    return None
+
+
 def openai_client(provider: str, timeout: float = 600):
     import openai
 
@@ -143,20 +179,20 @@ def openai_client(provider: str, timeout: float = 600):
     # OpenRouter credits requests to the app that sent them; these identify this one.
     headers = {"HTTP-Referer": "https://audio.benlocher.com", "X-Title": "Audio"} if provider == "openrouter" else None
     return openai.OpenAI(
-        api_key=api_key(provider), base_url=p.base_url, timeout=timeout, max_retries=4, default_headers=headers
+        api_key=require_key(provider), base_url=p.base_url, timeout=timeout, max_retries=4, default_headers=headers
     )
 
 
 def anthropic_client():
     import anthropic
 
-    return anthropic.Anthropic(api_key=api_key("anthropic"), max_retries=3)
+    return anthropic.Anthropic(api_key=require_key("anthropic"), max_retries=3)
 
 
 def gemini_client():
     from google import genai
 
-    return genai.Client(api_key=api_key("gemini"))
+    return genai.Client(api_key=require_key("gemini"))
 
 
 # ---------- model discovery ----------

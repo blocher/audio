@@ -1278,6 +1278,37 @@ input[type="range"] {
   background: #6d2620;
 }
 
+.toast-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-link {
+  display: inline-block;
+  margin-left: 6px;
+  color: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.toast-close {
+  flex: none;
+  margin: -4px -8px -4px 0;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  opacity: 1;
+  background: rgb(255 255 255 / 0.12);
+}
+
 /* ───────── Empty states, notes ───────── */
 
 .empty {
