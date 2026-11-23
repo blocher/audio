@@ -17,7 +17,7 @@ import {
   Search,
   Star,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import {
@@ -28,11 +28,11 @@ import {
   useLibraryItems,
   type LibraryItem,
 } from "../components/LibraryGrid";
-import { Button, Empty, PageHead, SourceIcon, useToast } from "../components/ui";
+import { Button, Empty, PageHead, SourceIcon, errorText, useToast } from "../components/ui";
 import { relative } from "../format";
 import { useListMemory, useUpdateParams } from "../hooks/listMemory";
 import { featureSet, useFeatures, useOnboarding } from "../hooks/session";
-import { useAction } from "../hooks/queries";
+import { useAction, useJobs } from "../hooks/queries";
 import type { AudibleAccount, Playlist } from "../types";
 
 type Kind = "all" | "books" | "podcasts" | "local";
@@ -112,7 +112,45 @@ export default function Library() {
   const library = useLibraryItems();
   const has = useFeatures();
   useListMemory(!library.loading);
-  const sync = useAction((id: number) => api.post(`/audible/accounts/${id}/sync`), [["books"]]);
+  // Refresh: get the latest from Audible (this account's, or every connected one's), then say what changed.
+  const sync = useAction((id: number | null) => api.post(id ? `/audible/accounts/${id}/sync` : "/audible/sync"), [["books"]]);
+  const jobs = useJobs();
+  const syncing = (jobs.data ?? []).some((j) => j.kind === "audible_sync" && (j.status === "queued" || j.status === "running"));
+  const connectedAccounts = (accounts.data ?? []).filter((a) => a.connected);
+  const lastChecked = connectedAccounts.map((a) => a.last_synced_at).filter(Boolean).sort()[0] ?? null;
+  // A check you asked for always reports back; the quiet one on opening the page only speaks up when there's news.
+  const asked = useRef(false);
+  const watchedSyncs = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    if (!jobs.data) return;
+    const syncs = jobs.data.filter((j) => j.kind === "audible_sync");
+    for (const j of syncs) {
+      const news = !j.message.startsWith("nothing new");
+      if (watchedSyncs.current?.has(j.id) && j.status === "succeeded" && (asked.current || news)) {
+        const name = accounts.data?.find((a) => a.id === j.target_id)?.name;
+        toast(`${name ? `${name}'s Audible` : "Audible"}: ${j.message}`);
+      }
+    }
+    const active = syncs.filter((j) => j.status === "queued" || j.status === "running").map((j) => j.id);
+    if (watchedSyncs.current?.size && !active.length) asked.current = false;
+    watchedSyncs.current = new Set(active);
+  }, [jobs.data, accounts.data, toast]);
+  const refresh = () => {
+    asked.current = true;
+    sync.mutate(account ? account.id : null, {
+      onSuccess: () => toast("Checking Audible for anything new…"),
+      onError: (e) => toast(errorText(e), "error"),
+    });
+  };
+  // Opening the Library checks Audible quietly when it hasn't been checked in the last hour (the server keeps count).
+  const checkedOnOpen = useRef(false);
+  const quietCheck = useAction(() => api.post("/audible/sync?if_older_than_minutes=60"));
+  useEffect(() => {
+    if (checkedOnOpen.current || !connectedAccounts.length) return;
+    checkedOnOpen.current = true;
+    const hourAgo = Date.now() - 60 * 60 * 1000;
+    if (connectedAccounts.some((a) => !a.last_synced_at || Date.parse(a.last_synced_at) < hourAgo)) quietCheck.mutate();
+  }, [connectedAccounts, quietCheck]);
 
   // Everything in the current tab and account, before search and the filters.
   const inView = useMemo(() => {
@@ -174,19 +212,16 @@ export default function Library() {
               <Search size={17} />
               <input className="input" type="search" placeholder="Search your audio…" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
-            {account ? (
+            {(account || ((kind === "all" || kind === "books") && connectedAccounts.length > 0)) && (
               <Button
                 icon={<RefreshCw size={16} />}
-                loading={sync.isPending}
-                onClick={() =>
-                  sync.mutate(account.id, {
-                    onSuccess: () => toast("Syncing library from Audible…"),
-                  })
-                }
+                loading={sync.isPending || syncing}
+                onClick={refresh}
+                title={`Get the latest from Audible${lastChecked ? ` (last checked ${relative(lastChecked)})` : ""}`}
               >
-                Sync
+                {syncing ? "Refreshing" : "Refresh"}
               </Button>
-            ) : null}
+            )}
             <Link className="btn" to="/shelf">
               <Star size={16} /> My Shelf
             </Link>

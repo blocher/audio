@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from django.db.models import (
     BigIntegerField,
@@ -16,12 +16,13 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Field, Router, Schema
 from ninja.errors import HttpError
 
 from core.api import JobOut, TrackOut, preferences
 from core.jobs import active_job, enqueue
-from core.models import Track
+from core.models import Job, Track
 from core.tenancy import household_id, membership
 
 from . import client, services
@@ -179,6 +180,34 @@ def sync(request, account_id: int):
     return enqueue(
         "audible_sync", f"Sync {account.name}'s Audible library", sync_library_task, account.pk, target=account
     )
+
+
+@router.post("/sync", response=list[JobOut])
+def sync_everything(request, if_older_than_minutes: int = 0):
+    """Get the latest from every connected Audible account in this library (the Library page's Refresh).
+
+    With ``if_older_than_minutes``, only accounts not checked that recently: the Library checks quietly when it
+    opens, and this keeps several tabs (or quick visits) from asking Audible over and over.
+    """
+    accounts = [a for a in AudibleAccount.objects.filter(household_id=household_id(request)) if a.connected]
+    if not accounts:
+        raise HttpError(400, "Connect an Audible account first")
+    if if_older_than_minutes > 0:
+        since = timezone.now() - timedelta(minutes=if_older_than_minutes)
+        # A failed check counts as recent too (its job's time), so a broken sign-in isn't retried on every visit.
+        recent = set(
+            Job.objects.filter(kind="audible_sync", target_type="audibleaccount", created_at__gte=since).values_list(
+                "target_id", flat=True
+            )
+        )
+        accounts = [a for a in accounts if a.pk not in recent and not (a.last_synced_at and a.last_synced_at >= since)]
+    return [
+        active_job(account, "audible_sync")
+        or enqueue(
+            "audible_sync", f"Sync {account.name}'s Audible library", sync_library_task, account.pk, target=account
+        )
+        for account in accounts
+    ]
 
 
 @router.post("/accounts/{account_id}/mine", response=AccountOut)

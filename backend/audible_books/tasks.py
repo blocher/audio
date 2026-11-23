@@ -19,7 +19,9 @@ def sync_library_task(job_id: int, account_id: int):
         except Exception as exc:
             AudibleAccount.objects.filter(pk=account_id).update(last_error=str(exc)[:2000])
             raise
-        job.step(1.0, f"{result['total']} titles ({result['created']} new)", force=True)
+        new = result["created"]
+        found = f"{new} new title{'s' if new != 1 else ''}" if new else "nothing new"
+        job.step(1.0, f"{found}, {result['total']} in all", force=True)
 
 
 def _convert(job, book_id: int, kbps: int, mono: bool, start: float = 0.0, end: float = 1.0):
