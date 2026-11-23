@@ -13,13 +13,12 @@ import {
   Headphones,
   Hourglass,
   Mic,
-  Plus,
   RefreshCw,
   Search,
   Star,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import {
   ContinueListening,
@@ -84,7 +83,6 @@ const FILTERS: {
 export default function Library() {
   const [params] = useSearchParams();
   const update = useUpdateParams();
-  const navigate = useNavigate();
   const toast = useToast();
   const kind = (params.get("kind") as Kind) || "all";
   const accountId = params.get("account");
@@ -192,9 +190,6 @@ export default function Library() {
             <Link className="btn" to="/shelf">
               <Star size={16} /> My Shelf
             </Link>
-            <Button variant="primary" icon={<Plus size={18} />} onClick={() => navigate("/settings#sources")}>
-              Add audio
-            </Button>
           </>
         }
       />
