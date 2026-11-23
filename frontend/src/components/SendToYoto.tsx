@@ -391,7 +391,6 @@ function Plan({
   const [kbps, setKbps] = useState<number | null | undefined>(undefined); // undefined: not chosen yet
   const [busy, setBusy] = useState(false);
   const mono = presets.data?.default_mono ?? true;
-  const defaultKbps = presets.data?.default_kbps ?? 64;
 
   const body = { groups: order, strategy, use_optimized: true, estimate_ms: estimate };
   const options = useQuery({
@@ -401,14 +400,20 @@ function Plan({
   });
   const opts = useMemo(() => options.data?.options ?? [], [options.data]);
 
-  // Start on "as is" unless the usual size saves a card (a book not downloaded yet starts on the usual size).
+  // Recommend the best-sounding size among those that need the fewest cards ("as is" sounds best of all).
+  const recommended = useMemo(() => {
+    const fits = opts.filter((o) => o.cards !== null);
+    if (!fits.length) return undefined;
+    const fewest = Math.min(...fits.map((o) => o.cards!));
+    const quality = (k: number | null) => k ?? Infinity;
+    return fits.filter((o) => o.cards === fewest).reduce((best, o) => (quality(o.kbps) > quality(best.kbps) ? o : best)).kbps;
+  }, [opts]);
+
+  // Start on the recommended size.
   useEffect(() => {
-    if (kbps !== undefined || !opts.length || !presets.data) return;
-    const asIs = opts.find((o) => o.kbps === null);
-    const usual = opts.find((o) => o.kbps === defaultKbps);
-    if (!asIs) setKbps(usual ? defaultKbps : opts[0].kbps);
-    else setKbps(usual?.cards && asIs.cards && usual.cards < asIs.cards ? defaultKbps : null);
-  }, [opts, kbps, presets.data, defaultKbps]);
+    if (kbps !== undefined || !opts.length) return;
+    setKbps(recommended === undefined ? opts[0].kbps : recommended);
+  }, [opts, kbps, recommended]);
 
   const chosen = kbps === undefined ? undefined : opts.find((o) => o.kbps === kbps);
   const preview = useQuery({
@@ -492,8 +497,11 @@ function Plan({
               disabled={o.cards === null}
               onClick={() => setKbps(o.kbps)}
             >
-              {o.kbps === defaultKbps && <span className="size-badge">Recommended</span>}
-              {o.kbps === null && <span className="size-badge plain">Fastest</span>}
+              {o.kbps === recommended ? (
+                <span className="size-badge">Recommended</span>
+              ) : (
+                o.kbps === null && <span className="size-badge plain">Fastest</span>
+              )}
               <span className="size-name">{label(o.kbps)}</span>
               <span className="size-cards serif">{o.cards === null ? "Too big" : plural(o.cards, "card")}</span>
               <small className="size-detail tabular">
