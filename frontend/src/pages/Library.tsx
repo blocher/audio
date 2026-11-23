@@ -30,6 +30,7 @@ import {
 } from "../components/LibraryGrid";
 import { Button, Empty, PageHead, SourceIcon, errorText, useToast } from "../components/ui";
 import { relative } from "../format";
+import { BundleButton } from "./Yoto";
 import { useListMemory, useUpdateParams } from "../hooks/listMemory";
 import { featureSet, useFeatures, useOnboarding } from "../hooks/session";
 import { useAction, useJobs } from "../hooks/queries";
@@ -225,6 +226,7 @@ export default function Library() {
             <Link className="btn" to="/shelf">
               <Star size={16} /> My Shelf
             </Link>
+            {has("yoto") && <BundleButton returnTo="/library" />}
           </>
         }
       />

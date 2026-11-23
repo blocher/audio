@@ -27,8 +27,44 @@ export function statusPill(status: Playlist["status"]) {
   return <span className={`pill ${tone}`}>{status === "synced" && <CheckCircle2 size={11} />} {label}</span>;
 }
 
+/**
+ * "Bundle & send to Yoto": pick several books, shows or folders, then plan and send them as one set of cards.
+ * Lives on the Library and the Yoto page; ``startOpen`` opens straight on the picker (the Yoto page's ?new=1).
+ */
+export function BundleButton({
+  returnTo,
+  variant = "primary",
+  startOpen = false,
+  label = "Bundle & send to Yoto",
+}: {
+  returnTo: string;
+  variant?: "primary" | "sage" | "ghost";
+  startOpen?: boolean;
+  label?: string;
+}) {
+  const [picking, setPicking] = useState(startOpen);
+  const [planGroups, setPlanGroups] = useState<PackGroup[] | null>(null);
+  return (
+    <>
+      <Button variant={variant} icon={<Layers size={17} />} onClick={() => setPicking(true)} title="Pick several books or shows and put them on Yoto cards together">
+        {label}
+      </Button>
+      {picking && (
+        <SourcePicker
+          onClose={() => setPicking(false)}
+          onPicked={(groups) => {
+            setPicking(false);
+            setPlanGroups(groups);
+          }}
+        />
+      )}
+      {planGroups && <SendToYoto source={{ kind: "groups", groups: planGroups }} returnTo={returnTo} onClose={() => setPlanGroups(null)} />}
+    </>
+  );
+}
+
 /** How to make a card, in three steps, with the way in. */
-function HowTo({ onSeveral }: { onSeveral: () => void }) {
+function HowTo() {
   return (
     <section className="panel howto">
       <h3>How to make a Yoto card</h3>
@@ -56,9 +92,7 @@ function HowTo({ onSeveral }: { onSeveral: () => void }) {
         <Link className="btn primary" to="/library">
           <LibraryBig size={17} /> Go to Library
         </Link>
-        <Button variant="ghost" icon={<Layers size={16} />} onClick={onSeveral}>
-          Put several books or shows on cards together
-        </Button>
+        <BundleButton returnTo="/yoto" variant="sage" label="Or bundle several together" />
       </div>
     </section>
   );
@@ -74,8 +108,7 @@ export default function Yoto() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<SettingsData>("/settings") });
   const jobs = useJobs();
   // ?new=1 opens straight on "pick several to put on cards".
-  const [picking, setPicking] = useState(params.get("new") === "1");
-  const [planGroups, setPlanGroups] = useState<PackGroup[] | null>(null);
+  const startBundle = params.get("new") === "1";
   const [following, setFollowing] = useState<{ id: number; title: string; batch?: string; playlistIds?: number[] } | null>(null);
   const [sendingKey, setSendingKey] = useState("");
 
@@ -118,6 +151,7 @@ export default function Yoto() {
         eyebrow="Yoto"
         title="Your Yoto cards"
         lede="Books, podcasts and folders you've sent to your Yoto app, packed onto as few 500 MB cards as possible."
+        actions={<BundleButton returnTo="/yoto" startOpen={startBundle} />}
       />
 
       {!accounts.isLoading && !connected && (
@@ -145,7 +179,7 @@ export default function Yoto() {
         </div>
       )}
 
-      <HowTo onSeveral={() => setPicking(true)} />
+      <HowTo />
 
       {sendJobs.map((j) => (
         <JobLine key={j.id} job={j} />
@@ -219,16 +253,6 @@ export default function Yoto() {
         )
       )}
 
-      {picking && (
-        <SourcePicker
-          onClose={() => setPicking(false)}
-          onPicked={(groups) => {
-            setPicking(false);
-            setPlanGroups(groups);
-          }}
-        />
-      )}
-      {planGroups && <SendToYoto source={{ kind: "groups", groups: planGroups }} returnTo="/yoto" onClose={() => setPlanGroups(null)} />}
       {following && <SendProgressModal jobId={following.id} title={following.title} batch={following.batch} playlistIds={following.playlistIds} onClose={() => setFollowing(null)} />}
     </>
   );
