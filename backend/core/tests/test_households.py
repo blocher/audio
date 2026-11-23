@@ -325,3 +325,29 @@ def test_leftovers_can_be_cleaned_up(client, ben, household, django_user_model):
         email="x@example.com", token="t", expires_at="2030-01-01T00:00:00Z", accepted_at="2026-01-01T00:00:00Z"
     )
     assert client.delete(f"/api/users/invites/{old.pk}").status_code == 200
+
+
+def test_only_super_admins_add_or_move_people(client, django_user_model):
+    """Someone who isn't a super admin can't bring anyone in, to their own library or another, or move anyone."""
+    from core.models import Household
+
+    kid = django_user_model.objects.create_user("kid", password=PW)
+    gran = django_user_model.objects.create_user("gran", password=PW)
+    elsewhere = Household.objects.create(name="Elsewhere")
+    client.force_login(kid)
+    for join in (True, False):
+        body = {"email": "x@example.com", "join_my_library": join}
+        assert client.post("/api/users/invites", body, content_type="application/json").status_code == 403
+    person = {"username": "new", "password": PW}
+    assert client.post("/api/users", person, content_type="application/json").status_code == 403
+    body = {**person, "household_id": elsewhere.pk}
+    assert client.post("/api/users", body, content_type="application/json").status_code == 403
+    move = {"household_id": elsewhere.pk}
+    for who in (gran, kid):
+        assert client.patch(f"/api/users/{who.pk}", move, content_type="application/json").status_code == 403
+    assert (
+        client.patch(
+            f"/api/users/households/{elsewhere.pk}", {"name": "Mine"}, content_type="application/json"
+        ).status_code
+        == 403
+    )

@@ -140,9 +140,9 @@ function CardActions({ item }: { item: LibraryItem }) {
   );
 }
 
-export function CoverGrid({ items, row }: { items: LibraryItem[]; row?: boolean }) {
+export function CoverGrid({ items }: { items: LibraryItem[] }) {
   return (
-    <div className={`cover-grid ${row ? "cover-row" : ""}`}>
+    <div className="cover-grid">
       {items.map((item) => (
         <div key={item.key} className="cover-card">
           <Link to={item.to} className="cover-card-link">

@@ -18,6 +18,7 @@ import PlaylistDetail from "./pages/PlaylistDetail";
 import PodcastDetail from "./pages/PodcastDetail";
 import Podcasts from "./pages/Podcasts";
 import Settings from "./pages/Settings";
+import Shelf from "./pages/Shelf";
 import SuperAdmin from "./pages/SuperAdmin";
 import Welcome from "./pages/Welcome";
 import Yoto from "./pages/Yoto";
@@ -71,6 +72,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/library" replace />} />
             <Route path="/library" element={<Library />} />
+            <Route path="/shelf" element={<Shelf />} />
             <Route path="/books/:id" element={<BookDetail />} />
             <Route path="/podcasts" element={<Podcasts />} />
             <Route path="/podcasts/:id" element={<PodcastDetail />} />

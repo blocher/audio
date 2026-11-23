@@ -12,6 +12,7 @@ import {
   Settings as SettingsIcon,
   ShieldCheck,
   SquareStack,
+  Star,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -69,6 +70,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
     { to: "/library?kind=books", label: "Audiobooks", icon: <BookOpen size={18} />, active: at("/library", "books") || location.pathname.startsWith("/books/"), sub: true },
     { to: "/podcasts", label: "Podcasts", icon: <Mic size={18} />, active: location.pathname.startsWith("/podcasts") || at("/library", "podcasts"), sub: true },
     { to: "/folders", label: "My own files", icon: <Folder size={18} />, active: location.pathname.startsWith("/folders") || at("/library", "local"), sub: true },
+    { to: "/shelf", label: "My Shelf", icon: <Star size={20} />, active: location.pathname === "/shelf" },
   ];
   const link = (item: Item) => (
     <Link key={item.to} to={item.to} className={`${item.active ? "active" : ""} ${item.sub ? "sub" : ""}`} aria-current={item.active ? "page" : undefined}>

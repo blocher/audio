@@ -153,9 +153,6 @@ export default function Library() {
     local: library.folders.length,
   };
   const account = accounts.data?.find((a) => String(a.id) === accountId);
-  // Just browsing (no search, filter or one account picked): show what's yours above everything.
-  const browsing = !q.trim() && !active.length && !accountId && (kind === "all" || kind === "books");
-  const shelf = browsing ? yourShelf(inView) : [];
   const noCards = !playlists.isLoading && !(playlists.data ?? []).length;
   const setKind = (k: Kind) => setParam("kind", k === "all" ? "" : k);
   const toggleFilter = (key: string) => update((p) => (p.get(key) === "1" ? p.delete(key) : p.set(key, "1")));
@@ -193,6 +190,9 @@ export default function Library() {
                 Sync
               </Button>
             ) : null}
+            <Link className="btn" to="/shelf">
+              <Star size={16} /> My Shelf
+            </Link>
             <Button variant="primary" icon={<Plus size={18} />} onClick={() => navigate("/settings#sources")}>
               Add audio
             </Button>
@@ -204,20 +204,6 @@ export default function Library() {
       {has("yoto") && noCards && counts.all > 0 && <FirstCardStrip />}
       <div className="with-rail">
         <section>
-          {shelf.length > 0 && (
-            <section className="shelf">
-              <div className="section-head">
-                <h2>Your shelf</h2>
-                <span className="muted">Starred and partway through · just yours</span>
-                {library.items.some((i) => i.starredAt) && (
-                  <button type="button" className="link-btn" onClick={() => toggleFilter("starred")}>
-                    All starred →
-                  </button>
-                )}
-              </div>
-              <CoverGrid items={shelf} row />
-            </section>
-          )}
           <div className="toolbar">
             <div className="chips">
               {(
@@ -282,13 +268,6 @@ export default function Library() {
       </div>
     </>
   );
-}
-
-/** Starred first (newest star first), then what you're partway through: at most a row's worth. */
-function yourShelf(items: LibraryItem[]): LibraryItem[] {
-  const starred = items.filter((i) => i.starredAt).sort((a, b) => b.starredAt!.localeCompare(a.starredAt!));
-  const partway = items.filter((i) => i.inProgress && !i.starredAt).sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0));
-  return [...starred, ...partway].slice(0, 12);
 }
 
 const DISMISSED = "audio.firstCardStrip";
