@@ -312,6 +312,9 @@ export interface PackGroup {
   track_ids: number[];
   /** Audible series name, or the show for a podcast season; used to suggest a name for the set of cards. */
   series?: string;
+  /** An Audible book not downloaded yet (no track_ids): planned from its length, downloaded during the send. */
+  book_id?: number;
+  estimate_ms?: number;
 }
 
 export interface PackCard {

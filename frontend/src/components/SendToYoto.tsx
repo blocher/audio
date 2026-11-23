@@ -246,7 +246,11 @@ export type SendSource =
 function sourceTitle(source: SendSource, groups: PackGroup[]) {
   if (source.kind === "book") return source.book.title;
   if (source.kind === "podcast" || source.kind === "folder") return source.title;
-  return groups.length === 1 ? groups[0].title : suggestName(groups);
+  if (groups.length === 1) return groups[0].title;
+  // What they are: a shared series or name, else their titles ("Matilda and The Hobbit", "Matilda, Holes and 3 more").
+  const names = groups.map((g) => g.title);
+  const listed = names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+  return suggestName(groups) || listed;
 }
 
 /** The tracks behind a source, fetched when the dialog opens. A book not downloaded yet has none: it's estimated. */
@@ -440,6 +444,7 @@ function Plan({
   const book = source.kind === "book" ? source.book : null;
   // A book that isn't downloaded yet: plan from its length; it's downloaded straight at the chosen size.
   const estimate = book && !book.track_count ? book.runtime_min * 60000 : 0;
+  const toDownload = groups.filter((g) => g.book_id && !g.track_ids.length).length;
   const [order, setOrder] = useState(groups);
   const several = order.length > 1;
   const [name, setName] = useState(() => suggestName(groups));
@@ -520,8 +525,13 @@ function Plan({
             {options.isLoading || kbps === undefined ? <Spinner /> : cards ? `Fits on ${plural(cards, "card")}` : "Too big for a card"}
           </span>
           <span className="muted">
-            {title}
-            {estimate ? " · we'll download it from Audible first" : ""}
+            {[
+              title,
+              estimate ? "we'll download it from Audible first" : "",
+              !estimate && toDownload > 0 ? `we'll download ${toDownload === 1 ? "1 book" : `${toDownload} books`} from Audible first` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
         </div>
         {tiles.length > 0 && (
@@ -649,7 +659,7 @@ function PickOrder({ order, onChange }: { order: PackGroup[]; onChange: (next: P
           <span className="num tabular">{i + 1}</span>
           <div style={{ minWidth: 0 }}>
             <div className="title truncate">{g.title}</div>
-            <div className="sub">{plural(g.track_ids.length, "track")}</div>
+            <div className="sub">{g.book_id && !g.track_ids.length ? "Downloads when you send" : plural(g.track_ids.length, "track")}</div>
           </div>
           <div className="row" style={{ "--gap": "2px" } as React.CSSProperties}>
             <Button size="sm" variant="ghost" iconOnly icon={<ArrowUp size={15} />} aria-label={`Move ${g.title} earlier`} disabled={i === 0} onClick={() => move(i, i - 1)} />

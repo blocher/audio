@@ -147,3 +147,80 @@ def test_trying_again_carries_on_with_the_same_cards(setup):
     client.post("/api/yoto/send", {**body, "batch": "not hex!"}, content_type="application/json")
     assert queued[0][6] == "0123abcd"
     assert queued[1][6] != "not hex!"
+
+
+@pytest.mark.django_db
+def test_several_picks_can_include_books_not_downloaded_yet(setup):
+    client, ready, queued = setup
+    connect_yoto()
+    track = add_track(ready, 1)
+    later = Book.objects.create(asin="B2", title="Later Book", account=ready.account, runtime_min=600)
+    groups = [
+        {"key": f"book:{ready.pk}", "title": "The Book", "track_ids": [track.pk]},
+        {"key": f"book:{later.pk}", "title": "Later Book", "book_id": later.pk, "track_ids": []},
+    ]
+
+    options = client.post("/api/pack/options", {"groups": groups}, content_type="application/json").json()
+    assert None not in {o["kbps"] for o in options["options"]}  # it downloads at the chosen size, so no "as is"
+    assert all(o["cards"] for o in options["options"])
+
+    res = client.post("/api/yoto/send", {"groups": groups, "kbps": 64}, content_type="application/json")
+    assert res.status_code == 200, res.content
+    sent, _, kbps, _, _, _, _, book_id, convert_kbps = queued[0]
+    assert (kbps, book_id, convert_kbps) == (64, None, 64)
+    assert sent[1] == {
+        "key": f"book:{later.pk}",
+        "title": "Later Book",
+        "series": "",
+        "book_id": later.pk,
+        "track_ids": [],
+        "estimate_ms": 600 * 60000,
+    }
+
+
+@pytest.mark.django_db
+def test_a_picked_book_from_another_library_is_refused(setup):
+    from core.models import Household
+
+    client, ready, _ = setup
+    connect_yoto()
+    other = Household.objects.create(name="Other")
+    theirs = Book.objects.create(asin="B9", title="Theirs", account=ready.account, household=other)
+    groups = [{"key": "x", "title": "Theirs", "book_id": theirs.pk, "track_ids": []}]
+    res = client.post("/api/yoto/send", {"groups": groups}, content_type="application/json")
+    assert res.status_code == 404
+
+
+@pytest.mark.django_db
+def test_the_task_downloads_picked_books_then_makes_the_cards(setup, monkeypatch):
+    _, ready, _ = setup
+    connect_yoto()
+    first = add_track(ready, 1)
+    later = Book.objects.create(asin="B2", title="Later Book", account=ready.account, runtime_min=40)
+    converted = []
+
+    def fake_convert(job, book_id, kbps, mono, start=0.0, end=1.0):
+        converted.append((book_id, kbps))
+        book = Book.objects.get(pk=book_id)
+        add_track(book, 1)
+        book.status = Book.Status.READY
+        book.save()
+
+    shrunk = []
+    monkeypatch.setattr("audible_books.tasks._convert", fake_convert)
+    monkeypatch.setattr(
+        "core.tasks.optimize_track", lambda track, kbps, mono, on_progress=None: shrunk.append(track.pk)
+    )
+    monkeypatch.setattr(tasks, "sync_playlist", lambda p, on_progress=None: None)
+    groups = [
+        {"key": f"book:{ready.pk}", "title": "The Book", "track_ids": [first.pk]},
+        {"key": f"book:{later.pk}", "title": "Later Book", "book_id": later.pk, "track_ids": []},
+    ]
+    job = Job.objects.create(kind="yoto_send", title="t")
+    tasks.send_to_yoto_task.run(job.pk, groups, "continuous", 48, True, "Both", "", "mixed1", None, 48)
+    job.refresh_from_db()
+    assert job.status == Job.Status.SUCCEEDED, job.error
+    assert converted == [(later.pk, 48)]
+    assert shrunk == [first.pk]  # the downloaded book is downsized; the new one already came at 48 kbps
+    items = [i.track.book_id for p in Playlist.objects.filter(batch="mixed1") for i in p.items.all()]
+    assert sorted(items) == sorted([ready.pk, later.pk])

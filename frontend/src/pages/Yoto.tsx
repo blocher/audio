@@ -11,6 +11,7 @@ import { useMe } from "../hooks/session";
 import type { Book, Collection, Job, PackGroup, Playlist, Podcast, PodcastDetail, SettingsData, Track, YotoAccount } from "../types";
 import { seasonGroups, seasonKey, seasonLabel } from "../seasons";
 import { JobLine } from "./BookDetail";
+import { usePresets } from "../components/Tools";
 
 const CARD_BYTES = 500 * 1024 * 1024;
 
@@ -294,7 +295,13 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
 
   const q = term.trim().toLowerCase();
   const matches = (...fields: string[]) => !q || fields.some((f) => f.toLowerCase().includes(q));
-  const readyBooks = (books.data ?? []).filter((b) => b.track_count > 0);
+  // New cards can take any book: one not downloaded yet is downloaded during the send. Adding to a card that's
+  // already made needs the audio here now.
+  const presets = usePresets();
+  const readyBooks = (books.data ?? []).filter((b) => b.track_count > 0 || (!addTo && b.runtime_min > 0));
+  const notHere = (b: Book) => b.track_count === 0;
+  // A book not downloaded yet: about the size it'll come down at.
+  const bookBytes = (b: Book) => (notHere(b) ? (b.runtime_min * 60 * (presets.data?.default_kbps ?? 64) * 1000) / 8 : b.size_bytes);
   const blocks = bookBlocks(readyBooks.filter((b) => matches(b.title, b.authors, ...allSeries(b).map((s) => s.title))));
   const readyPodcasts = (podcasts.data ?? []).filter((p) => p.downloaded_count > 0 && matches(p.title, p.author)).sort((a, b) => natural(a.title, b.title));
   const readyFolders = (folders.data ?? []).filter((c) => c.track_count > 0 && matches(c.name)).sort((a, b) => natural(a.name, b.name));
@@ -329,6 +336,7 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
           const [kind, id] = key.split(":");
           if (kind === "book") {
             const book = grouped.get(id)!;
+            if (notHere(book)) return { key, title: book.title, series: book.series || undefined, track_ids: [], book_id: book.id, estimate_ms: book.runtime_min * 60000 };
             const tracks = await api.get<Track[]>(`/tracks?book_id=${id}`);
             return { key, title: book.title, series: book.series || undefined, track_ids: tracks.map((t) => t.id) };
           }
@@ -358,10 +366,18 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
     </label>
   );
   const bookSub = (b: Book, inSeries: boolean) =>
-    [inSeries && b.series_position ? `Book ${b.series_position}` : "", b.authors, `${b.track_count} chapters`, duration(b.runtime_min * 60000), mb(b.size_bytes)].filter(Boolean).join(" · ");
+    [
+      inSeries && b.series_position ? `Book ${b.series_position}` : "",
+      b.authors,
+      notHere(b) ? "Downloads when you send" : `${b.track_count} chapters`,
+      duration(b.runtime_min * 60000),
+      `${notHere(b) ? "about " : ""}${mb(bookBytes(b))}`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   // Size and length of every ticked source, so you can see how they'll group against a card's limits.
   const sizeOf = new Map<string, number>([
-    ...readyBooks.map((b) => [`book:${b.id}`, b.size_bytes] as const),
+    ...readyBooks.map((b) => [`book:${b.id}`, bookBytes(b)] as const),
     ...(podcasts.data ?? []).flatMap((p) => savedSeasons(p).map((s) => [s.key, s.downloaded_bytes] as const)),
     ...(folders.data ?? []).map((c) => [`folder:${c.id}`, c.current_bytes] as const),
   ]);
@@ -410,7 +426,7 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
           <p className="muted">
             {addTo
               ? "Only audio that's already converted or downloaded can go on a card. What you pick goes on the end of this card, in the order shown; you can rearrange it afterwards."
-              : "Tick a whole series, or a few seasons of a show, and they'll play back to back on as few cards as possible. Only books and episodes that are already downloaded show here; for anything else, tap Send to Yoto on it in your Library."}
+              : "Tick a whole series, or a few seasons of a show, and they'll play back to back on as few cards as possible. Books that aren't downloaded yet are downloaded when you send; podcast episodes need saving on the show's page first."}
           </p>
           <div className="search">
             <Search size={17} />
@@ -446,7 +462,7 @@ export function SourcePicker({ onClose, onPicked, addTo }: { onClose: () => void
                         <div style={{ minWidth: 0 }}>
                           <div className="title truncate">{bl.series}</div>
                           <div className="sub">
-                            Whole series · {bl.books.length} books · {duration(hours)} · {mb(bl.books.reduce((a, b) => a + b.size_bytes, 0))}
+                            Whole series · {bl.books.length} books · {duration(hours)} · {mb(bl.books.reduce((a, b) => a + bookBytes(b), 0))}
                           </div>
                         </div>
                       </label>

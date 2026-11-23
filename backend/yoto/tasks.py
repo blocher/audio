@@ -65,6 +65,21 @@ def send_to_yoto_task(
 
         # A restart part way through: the cards were already made, so carry on with them rather than make them twice.
         playlists = list(Playlist.objects.filter(batch=batch, household_id=job.job.household_id).order_by("id"))
+        # Several picks: download the books that aren't here yet, at the chosen size, before fitting them on cards.
+        pending = [g for g in groups if g.get("book_id") and not g.get("track_ids")]
+        converted: set[int] = set()
+        if pending and not playlists:
+            share = 0.5 / len(pending)
+            for n, group in enumerate(pending):
+                book = Book.objects.get(pk=group["book_id"])
+                done = book.status == Book.Status.READY and book.tracks.exclude(file="").exists()
+                if not done:
+                    job.step(progress, f"Downloading “{book.title}” ({n + 1} of {len(pending)})", force=True)
+                    _convert(job, book.pk, convert_kbps, mono, progress, progress + share)
+                ids = list(book.tracks.exclude(file="").order_by("position", "id").values_list("pk", flat=True))
+                group["track_ids"] = ids
+                converted.update(ids)
+                progress += share
         if not playlists:
             job.step(progress, "Fitting it onto cards", force=True)
             payload = PackIn(groups=groups, strategy=strategy, kbps=kbps, use_optimized=True)
@@ -79,7 +94,7 @@ def send_to_yoto_task(
         if kbps:
             ids = {i.track_id for p in playlists for i in p.items.all()}
             stale = list(
-                Track.objects.filter(pk__in=ids)
+                Track.objects.filter(pk__in=ids - converted)
                 .exclude(file="")
                 .exclude(optimized_bitrate_kbps=kbps, optimized_mono=mono)
                 .order_by("pk")

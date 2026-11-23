@@ -417,7 +417,8 @@ def sync(request, payload: SyncIn):
 
 
 class SendIn(Schema):
-    groups: list[dict] = []  # tracks already here: [{"key", "title", "track_ids"}]
+    # [{"key", "title", "track_ids"}]; a book not downloaded yet comes as {"key", "title", "book_id"} with no tracks
+    groups: list[dict] = []
     book_id: int | None = None  # or an Audible book, converted first if it isn't yet
     strategy: str = "sequential"
     kbps: int | None = None  # downsize (or, for a book not converted yet, convert) to this bitrate; None = as is
@@ -458,10 +459,14 @@ def send(request, payload: SendIn):
             convert_kbps, kbps = payload.kbps or int(prefs["default_kbps"]), None
         title, strategy = book.title, "sequential"
     else:
-        if not any(g.get("track_ids") for g in groups):
+        groups = [_with_book(g, hid) for g in groups]
+        if any(not g.get("track_ids") and g.get("book_id") for g in groups):
+            # Books still to download are downloaded at the chosen size; the rest are downsized to match.
+            convert_kbps = payload.kbps or int(prefs["default_kbps"])
+        elif not any(g.get("track_ids") for g in groups):
             raise HttpError(400, "Pick something to put on the cards")
         title = payload.name.strip() or (groups[0].get("title") if len(groups) == 1 else f"{len(groups)} picks")
-    if convert_kbps is None:
+    if convert_kbps is None or payload.book_id is None:
         # Check it fits before queueing, so a track that's too big shows up here rather than minutes later.
         probe = groups
         if payload.book_id is not None:
@@ -483,6 +488,32 @@ def send(request, payload: SendIn):
         convert_kbps,
         target=target,
     )
+
+
+def _with_book(group: dict, hid: int) -> dict:
+    """A picked group, checked: a book not downloaded yet gets its length to plan with (or its tracks, if it has
+    been downloaded since it was picked)."""
+    from audible_books.models import Book
+    from audible_books.services import download_account
+
+    if group.get("track_ids") or not group.get("book_id"):
+        return {k: v for k, v in group.items() if k != "book_id"}
+    book = get_object_or_404(Book.objects.select_related("account"), pk=group["book_id"], household_id=hid)
+    tracks = list(book.tracks.exclude(file="").order_by("position", "id").values_list("pk", flat=True))
+    if tracks:
+        return {"key": group.get("key") or f"book:{book.pk}", "title": book.title, "track_ids": tracks}
+    if active_job(book, "audible_convert") or active_job(book, "audible_askable") or active_job(book, "yoto_send"):
+        raise HttpError(409, f"“{book.title}” is still being downloaded. Try again once that's finished.")
+    if download_account(book) is None:
+        raise HttpError(400, f"{book.account.name}'s Audible account needs signing in again")
+    return {
+        "key": group.get("key") or f"book:{book.pk}",
+        "title": book.title,
+        "series": book.series,
+        "book_id": book.pk,
+        "track_ids": [],
+        "estimate_ms": book.runtime_min * 60000,
+    }
 
 
 @router.get("/limits")

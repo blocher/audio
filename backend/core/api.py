@@ -332,7 +332,9 @@ def bitrate_presets(request):
 
 
 class PackIn(Schema):
-    groups: list[dict]  # [{"key": "book:1", "title": "...", "track_ids": [..]}]
+    # [{"key": "book:1", "title": "...", "track_ids": [..]}]; a book not downloaded yet has no track_ids but an
+    # "estimate_ms" (its length), and is planned from that until it's downloaded.
+    groups: list[dict]
     strategy: str = "sequential"
     kbps: int | None = None  # estimate sizes as if downsized to this bitrate
     use_optimized: bool = True
@@ -354,6 +356,7 @@ def build_groups(groups: list[dict], kbps: int | None, use_optimized: bool) -> l
 
     ids = [int(t) for g in groups for t in g.get("track_ids", [])]
     tracks = Track.objects.for_household(current_household_id()).in_bulk(ids)
+    groups = _with_lengths(groups)
     result = []
     for g in groups:
         items = [
@@ -361,6 +364,8 @@ def build_groups(groups: list[dict], kbps: int | None, use_optimized: bool) -> l
             for tid in g.get("track_ids", [])
             if (t := tracks.get(int(tid)))
         ]
+        if not g.get("track_ids") and int(g.get("estimate_ms") or 0) > 0:
+            items = _estimate_items(int(g["estimate_ms"]), kbps or audio.DEFAULT_KBPS)
         result.append(
             packing.Group(key=str(g.get("key") or len(result)), title=g.get("title") or "Playlist", items=items)
         )
@@ -419,12 +424,32 @@ class OptionsIn(PackIn):
     estimate_ms: int = 0
 
 
-def _estimate_groups(duration_ms: int, kbps: int) -> list[packing.Group]:
+def _with_lengths(groups: list[dict]) -> list[dict]:
+    """Groups with each book that isn't downloaded yet given its length ("estimate_ms") to plan with."""
+    from audible_books.models import Book
+
+    from .tenancy import current_household_id
+
+    wanted = {int(g["book_id"]) for g in groups if g.get("book_id") and not g.get("track_ids")}
+    if not wanted:
+        return groups
+    lengths = dict(
+        Book.objects.filter(pk__in=wanted, household_id=current_household_id()).values_list("pk", "runtime_min")
+    )
+    return [
+        {**g, "estimate_ms": (lengths.get(int(g["book_id"])) or 0) * 60000}
+        if g.get("book_id") and not g.get("track_ids")
+        else g
+        for g in groups
+    ]
+
+
+def _estimate_items(duration_ms: int, kbps: int) -> list[packing.Item]:
+    """Stand-in chapters for a book that isn't downloaded yet: half-hour parts at the size it'll be downloaded at."""
     part = 30 * 60 * 1000
     count = max(1, -(-duration_ms // part))
     length = duration_ms // count
-    items = [packing.Item(0, f"Part {n + 1}", audio.estimate_bytes(length, kbps), length) for n in range(count)]
-    return [packing.Group("estimate", "Book", items)]
+    return [packing.Item(0, f"Part {n + 1}", audio.estimate_bytes(length, kbps), length) for n in range(count)]
 
 
 @router.post("/pack/options")
@@ -433,8 +458,13 @@ def pack_options(request, payload: OptionsIn):
     limits = pack_limits(payload)
     current_kbps = None
     choices: list[int | None] = [p["kbps"] for p in audio.BITRATE_PRESETS]
-    if not payload.estimate_ms:
-        base = build_groups(payload.groups, None, payload.use_optimized)
+    groups_in = _with_lengths(payload.groups)
+    if payload.estimate_ms:
+        groups_in = [{"key": "estimate", "title": "Book", "estimate_ms": payload.estimate_ms}]
+    # Books not downloaded yet are downloaded at the chosen size, so there's no "as is" for them.
+    pending = any(not g.get("track_ids") and g.get("estimate_ms") for g in groups_in)
+    if not pending:
+        base = build_groups(groups_in, None, payload.use_optimized)
         total_bytes = sum(i.bytes for g in base for i in g.items)
         total_ms = sum(i.duration_ms for g in base for i in g.items)
         if total_ms:
@@ -443,10 +473,7 @@ def pack_options(request, payload: OptionsIn):
         choices = [None] + [k for k in choices if current_kbps is None or k < current_kbps * 0.9]
     out = []
     for kbps in choices:
-        if payload.estimate_ms:
-            groups = _estimate_groups(payload.estimate_ms, kbps or audio.DEFAULT_KBPS)
-        else:
-            groups = build_groups(payload.groups, kbps, payload.use_optimized)
+        groups = build_groups(groups_in, kbps, payload.use_optimized)
         try:
             cards = packing.pack(groups, limits, payload.strategy)
         except packing.TrackTooLarge:
