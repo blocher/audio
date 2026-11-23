@@ -332,8 +332,10 @@ def convert(request, book_id: int, payload: ConvertIn):
     book = get_object_or_404(Book.objects.select_related("account"), pk=book_id, household_id=household_id(request))
     if services.download_account(book) is None:
         raise HttpError(400, f"{book.account.name}'s Audible account needs reconnecting")
-    if job := active_job(book, "audible_convert"):
-        return job
+    # Already being downloaded (to convert, to ask about, or for Yoto): follow that instead of starting another.
+    for kind in ("audible_convert", "audible_askable", "yoto_send"):
+        if job := active_job(book, kind):
+            return job
     prefs = preferences()
     kbps = payload.kbps or int(prefs["default_kbps"])
     mono = payload.mono if payload.mono is not None else bool(prefs["default_mono"])

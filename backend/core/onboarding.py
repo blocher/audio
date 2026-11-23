@@ -59,10 +59,10 @@ def update(request, payload: OnboardingPatch):
     if payload.features is not None:
         allowed = (*Member.FEATURES, *Member.SOURCES)
         chosen = [f for f in allowed if f in payload.features]  # known ones, in a stable order
-        if unknown := set(payload.features) - set(allowed):
+        # "listen" was a choice once; an old page may still send it, and it's simply dropped.
+        if unknown := set(payload.features) - set(allowed) - {"listen"}:
             raise HttpError(400, f"Unknown choice: {', '.join(sorted(unknown))}")
-        if not set(chosen) & set(Member.FEATURES):
-            raise HttpError(400, "Pick at least one thing you'd like to do")
+        # Nothing ticked is fine: listening is always there.
         member.features = chosen
     if payload.done is not None:
         member.onboarded_at = timezone.now() if payload.done else None

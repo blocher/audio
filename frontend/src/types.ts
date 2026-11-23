@@ -1,8 +1,9 @@
 // Shapes returned by the Django Ninja API.
 
 /** What someone uses the app for, and where their audio comes from. */
-export type Feature = "yoto" | "ask" | "listen" | "audible" | "podcasts" | "folders";
-export const FEATURES: Feature[] = ["yoto", "ask", "listen"];
+// Listening here is always on, so it isn't a choice.
+export type Feature = "yoto" | "ask" | "audible" | "podcasts" | "folders";
+export const FEATURES: Feature[] = ["yoto", "ask"];
 export const SOURCES: Feature[] = ["audible", "podcasts", "folders"];
 
 export interface User {

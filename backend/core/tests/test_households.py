@@ -204,8 +204,10 @@ def test_onboarding_remembers_the_choice_and_finishing(client, ben):
     done = client.patch("/api/onboarding", body, content_type="application/json")
     assert done.json()["features"] == ["yoto", "podcasts"] and done.json()["onboarded"] is True
     assert client.get("/api/auth/session").json()["user"]["features"] == ["yoto", "podcasts"]
-    for bad in (["nope"], ["audible"]):  # unknown, or only a source with nothing to do
-        assert client.patch("/api/onboarding", {"features": bad}, content_type="application/json").status_code == 400
+    assert client.patch("/api/onboarding", {"features": ["nope"]}, content_type="application/json").status_code == 400
+    # Just listening (no Yoto, no Ask) is fine, and an old page's "listen" is quietly dropped.
+    only = client.patch("/api/onboarding", {"features": ["audible", "listen"]}, content_type="application/json")
+    assert only.status_code == 200 and only.json()["features"] == ["audible"]
 
 
 def test_yoto_sign_in_comes_back_to_the_page_that_started_it(client, ben, monkeypatch):

@@ -128,6 +128,12 @@ export async function promptInstall(): Promise<boolean> {
 
 /** Drop this person's cached library data and covers, e.g. on sign-out. */
 export async function clearUserCaches() {
+  // What was last playing belongs to whoever was signed in, not to the next person on this browser.
+  try {
+    localStorage.removeItem("audio.player");
+  } catch {
+    /* storage unavailable */
+  }
   if (!("caches" in window)) return;
   await Promise.all(USER_CACHES.map((name) => caches.delete(name)));
 }

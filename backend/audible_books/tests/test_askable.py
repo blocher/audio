@@ -77,3 +77,15 @@ def test_a_fully_transcribed_book_is_already_askable(setup):
     response = client.post(f"/api/audible/books/{book.pk}/askable", {}, content_type="application/json")
     assert response.status_code == 400
     assert not queued
+
+
+@pytest.mark.django_db
+def test_listen_here_follows_a_download_already_under_way(setup):
+    from core.models import Job
+
+    client, book, queued = setup
+    running = Job.objects.create(
+        kind="yoto_send", title="t", status=Job.Status.RUNNING, target_type="book", target_id=book.pk
+    )
+    res = client.post(f"/api/audible/books/{book.pk}/convert", {}, content_type="application/json")
+    assert res.json()["id"] == running.pk and queued == []

@@ -4168,3 +4168,8 @@ body:has(.impersonation-bar) .welcome {
   color: var(--sage-strong);
   font-size: var(--text-sm);
 }
+
+/* No player until something has been played: don't leave room for it. */
+.shell.no-player {
+  --player-h: 0px;
+}

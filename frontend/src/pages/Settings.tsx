@@ -82,7 +82,6 @@ function SetupSection() {
     const next = new Set(chosen);
     if (next.has(f)) next.delete(f);
     else next.add(f);
-    if (!FEATURES.some((x) => next.has(x))) return toast("Keep at least one of Yoto cards, Ask or Listen", "error");
     save.mutate([...FEATURES, ...SOURCES].filter((x) => next.has(x)), {
       onSuccess: () => qc.invalidateQueries({ queryKey: ["session"] }),
       onError: (e) => toast(errorText(e), "error"),

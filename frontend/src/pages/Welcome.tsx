@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   Circle,
   FolderOpen,
-  Headphones,
   LibraryBig,
   MessageCircle,
   Mic,
@@ -180,7 +179,6 @@ function Done({ children }: { children: ReactNode }) {
 const FEATURE_ICONS: Record<Feature, ReactNode> = {
   yoto: <SquareStack size={26} />,
   ask: <MessageCircle size={26} />,
-  listen: <Headphones size={26} />,
   audible: <SourceIcon kind="audible" size={22} />,
   podcasts: <Mic size={22} />,
   folders: <FolderOpen size={22} />,
@@ -190,11 +188,10 @@ function StartStep({ data, onNext }: { data: Onboarding; onNext: (features: Feat
   const qc = useQueryClient();
   // Someone new starts with the most common picks; someone rerunning setup sees what they chose before.
   const [picked, setPicked] = useState<Set<Feature>>(
-    new Set(data.features.length ? data.features : ["yoto", "listen", "audible", "folders"]),
+    new Set(data.features.length ? data.features : ["yoto", "audible", "folders"]),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const anyFeature = FEATURES.some((f) => picked.has(f));
 
   const toggle = (f: Feature) =>
     setPicked((current) => {
@@ -239,14 +236,14 @@ function StartStep({ data, onNext }: { data: Onboarding; onNext: (features: Feat
         )}
       </p>
       <h2>What would you like to do?</h2>
+      <p className="muted" style={{ margin: "-6px 0 12px" }}>You can always listen to your audio right here, too.</p>
       <div className="use-choices">{FEATURES.map(tile)}</div>
       <h2>Where does your audio come from?</h2>
       <div className="use-choices compact">{SOURCES.map(tile)}</div>
       {error && <div style={{ marginTop: 14, width: "100%" }}><Note tone="error">{error}</Note></div>}
       <div className="welcome-nav">
-        <span className="muted" style={{ fontSize: "var(--text-sm)" }}>{!anyFeature && "Pick at least one thing to do."}</span>
         <span className="spacer" />
-        <Button variant="primary" size="lg" loading={busy} disabled={!anyFeature} onClick={() => void save()}>
+        <Button variant="primary" size="lg" loading={busy} onClick={() => void save()}>
           Continue <ArrowRight size={17} />
         </Button>
       </div>
@@ -257,7 +254,6 @@ function StartStep({ data, onNext }: { data: Onboarding; onNext: (features: Feat
 const FEATURE_TEXT: Record<Feature, string> = {
   yoto: "Put audiobooks and podcasts onto Make Your Own cards for a Yoto player.",
   ask: "Ask questions about the book you're listening to, with no spoilers past where you are.",
-  listen: "Play your audiobooks and podcasts right here, on your phone or computer.",
   audible: "Audiobooks you've bought on Audible.",
   podcasts: "Shows you follow, from Apple Podcasts or any feed.",
   folders: "Audio files on your computer, like CDs you've copied.",

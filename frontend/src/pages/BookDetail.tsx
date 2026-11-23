@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, FileText, Headphones, ListMusic, MessageCircle, Minimize2, MoreHorizontal, Play, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, FileText, Headphones, ListMusic, MessageCircle, Minimize2, MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
@@ -162,28 +162,18 @@ export default function BookDetail() {
           <div className="row wrap hero-actions">
             {has("yoto") && <SendToYotoButton book={b} autoOpen={autoSend} />}
             <MakeAskableButton book={b} variant={has("yoto") ? "sage" : "primary"} onAsk={openAsk} />
-            {ready ? (
-              <Button size="lg" icon={<Play size={18} fill="currentColor" />} onClick={() => player.play(queue, resumeIndex, b.position_ms - (queue[resumeIndex]?.workOffsetMs ?? 0))}>
-                {b.position_ms ? "Resume here" : "Play here"}
-              </Button>
-            ) : (
-              has("listen") && (
-                <Button
-                  size="lg"
-                  icon={<Headphones size={18} />}
-                  disabled={!!job}
-                  loading={listenHere.isPending}
-                  onClick={() =>
-                    listenHere.mutate(undefined, {
-                      onSuccess: () => toast("Getting it ready to play here. This takes a few minutes."),
-                      onError: (e) => toast(errorText(e), "error"),
-                    })
-                  }
-                >
-                  Listen here
-                </Button>
-              )
-            )}
+            <ListenHereButton
+              ready={ready}
+              job={job}
+              starting={listenHere.isPending}
+              onDownload={() =>
+                listenHere.mutate(undefined, {
+                  onSuccess: () => toast("Getting it ready to play. It starts by itself in a few minutes."),
+                  onError: (e) => toast(errorText(e), "error"),
+                })
+              }
+              onPlay={() => player.play(queue, resumeIndex, b.position_ms - (queue[resumeIndex]?.workOffsetMs ?? 0))}
+            />
             <StarButton kind="book" id={b.id} title={b.title} />
             <details className="more-menu">
               <summary className="btn ghost" aria-label="More options">
@@ -290,6 +280,52 @@ export default function BookDetail() {
       {dialog === "downsize" && <DownsizeDialog tracks={b.tracks} onClose={() => setDialog(null)} />}
       {dialog === "transcribe" && <TranscribeDialog tracks={b.tracks} onClose={() => setDialog(null)} />}
     </>
+  );
+}
+
+/**
+ * "Listen here" on every book. Downloaded: it plays (from where you are in Audible). Not yet: it downloads the
+ * book, and if you're still on the page when that's done, starts playing.
+ */
+function ListenHereButton({
+  ready,
+  job,
+  starting,
+  onDownload,
+  onPlay,
+}: {
+  ready: boolean;
+  job: Job | undefined;
+  starting: boolean;
+  onDownload: () => void;
+  onPlay: () => void;
+}) {
+  const [wanted, setWanted] = useState(false);
+  useEffect(() => {
+    if (wanted && ready) {
+      setWanted(false);
+      onPlay();
+    }
+  }, [wanted, ready, onPlay]);
+  if (!ready && job)
+    return (
+      <Button size="lg" loading disabled>
+        {wanted ? "Getting it ready" : "Downloading"} · {Math.round(job.progress * 100)}%
+      </Button>
+    );
+  return (
+    <Button
+      size="lg"
+      icon={<Headphones size={18} />}
+      loading={starting}
+      onClick={() => {
+        if (ready) return onPlay();
+        setWanted(true);
+        onDownload();
+      }}
+    >
+      Listen here
+    </Button>
   );
 }
 

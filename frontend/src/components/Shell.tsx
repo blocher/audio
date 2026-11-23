@@ -21,6 +21,7 @@ import { useScrollTopOnNavigate } from "../hooks/listMemory";
 import { useJobs } from "../hooks/queries";
 import { clearUserCaches, promptInstall, usePwa } from "../pwa";
 import type { AudibleAccount, User, YotoAccount } from "../types";
+import { usePlayer } from "../player";
 import PlayerBar from "./PlayerBar";
 import { Button, SourceIcon, useToast } from "./ui";
 
@@ -28,6 +29,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
   const qc = useQueryClient();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const player = usePlayer();
   const pwa = usePwa();
   const jobs = useJobs();
   const running = (jobs.data ?? []).filter((j) => j.status === "running" || j.status === "queued").length;
@@ -41,7 +43,8 @@ export default function Shell({ user, children }: { user: User; children: ReactN
     await api.post("/auth/logout");
     await clearUserCaches();
     qc.clear();
-    qc.invalidateQueries({ queryKey: ["session"] });
+    // A fresh page, so nothing of theirs (the player, a half-played chapter) carries over to the sign-in screen.
+    window.location.replace("/");
   }
 
   // Coming back from signing in to Yoto (this tab went to Yoto and back): say so, refresh, and tidy the address.
@@ -77,7 +80,7 @@ export default function Shell({ user, children }: { user: User; children: ReactN
   );
 
   return (
-    <div className="shell">
+    <div className={`shell ${player.current ? "" : "no-player"}`}>
       <aside className={`sidebar ${open ? "open" : ""}`}>
         <Link to="/" className="brand">
           <AudioLines size={26} /> Audio

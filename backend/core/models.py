@@ -46,7 +46,7 @@ class Member(TimeStamped):
 
     # What they use the app for ("yoto", "ask", "listen") and where their audio comes from ("audible", "podcasts",
     # "folders"). The wizard only sets up these, and the app shows these first. Empty means everything.
-    FEATURES = ("yoto", "ask", "listen")
+    FEATURES = ("yoto", "ask")  # listening here is always on, so it's no longer a choice
     SOURCES = ("audible", "podcasts", "folders")
 
     user = models.OneToOneField("auth.User", on_delete=models.CASCADE, related_name="member")

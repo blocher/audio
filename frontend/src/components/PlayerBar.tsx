@@ -1,4 +1,4 @@
-import { Headphones, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward } from "lucide-react";
+import { Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward } from "lucide-react";
 import { Link } from "react-router-dom";
 import { clock } from "../format";
 import { usePlayer } from "../player";
@@ -7,15 +7,8 @@ const RATES = [0.8, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
 export default function PlayerBar() {
   const p = usePlayer();
-  if (!p.current) {
-    return (
-      <div className="player empty">
-        <div className="row" style={{ justifyContent: "center" }}>
-          <Headphones size={16} /> Pick a chapter or episode to start listening
-        </div>
-      </div>
-    );
-  }
+  // Nothing has been played yet: no player at all, until "Listen here" (or any play button) puts something in it.
+  if (!p.current) return null;
   const now = (
     <>
       {p.current.cover ? <img src={p.current.cover} alt="" /> : <div className="art" />}
