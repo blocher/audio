@@ -3864,10 +3864,19 @@ body:has(.impersonation-bar) .welcome {
 
 /* ---------- Send to Yoto ---------- */
 
+.send-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
 .send-summary {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .send-count {
@@ -3880,22 +3889,23 @@ body:has(.impersonation-bar) .welcome {
 .ycards {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
 }
 
 .ycard {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
+  font-size: var(--text-xs);
   color: var(--ink-muted);
 }
 
 .ycard-face {
   position: relative;
-  width: 54px;
-  height: 84px;
-  border-radius: 10px;
+  width: 34px;
+  height: 52px;
+  border-radius: 7px;
   border: 2px solid var(--paper-edge);
   background: var(--paper-sunk);
   overflow: hidden;
@@ -3908,44 +3918,20 @@ body:has(.impersonation-bar) .welcome {
   transition: height 0.4s var(--ease);
 }
 
-.ycard-n {
-  position: absolute;
-  top: 5px;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font-weight: 700;
-  font-size: var(--text-sm);
-  color: var(--ink);
-  mix-blend-mode: normal;
-}
-
 .size-options {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
-  gap: 10px;
-}
-
-.send-foot {
-  position: sticky;
-  bottom: -1px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  margin: 0 -26px -26px;
-  padding: 14px 26px 20px;
-  border-top: 1px solid var(--paper-line);
-  background: var(--paper-raised);
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 14px 10px;
+  margin-top: 8px;
 }
 
 .size-option {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 12px 14px;
+  gap: 2px;
+  padding: 12px 12px 10px;
   border: 1.5px solid var(--paper-edge);
   border-radius: var(--radius);
   background: var(--paper-raised);
@@ -3971,21 +3957,55 @@ body:has(.impersonation-bar) .welcome {
   cursor: default;
 }
 
-.size-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+/* Sits on the top edge, so it never makes one choice taller than the rest. */
+.size-badge {
+  position: absolute;
+  top: -9px;
+  right: 8px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--sage);
+  color: #fff;
+  font-size: 0.68rem;
   font-weight: 650;
+  line-height: 1.5;
 }
 
-.size-name .pill {
-  font-size: 0.68rem;
+.size-badge.plain {
+  background: var(--paper-edge);
+  color: var(--ink-soft);
+}
+
+.size-name {
+  font-weight: 650;
+  font-size: var(--text-sm);
 }
 
 .size-cards {
   font-size: var(--text-lg);
   font-weight: 600;
+  line-height: 1.2;
+}
+
+.size-detail {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+/* Cancel and Send stay in view at the bottom of a long dialog, with room above them. */
+.send-foot {
+  position: sticky;
+  bottom: -26px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 4px -26px -26px;
+  padding: 14px 26px 20px;
+  border-top: 1px solid var(--paper-line);
+  background: var(--paper-raised);
 }
 
 .yoto-done {

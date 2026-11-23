@@ -425,33 +425,33 @@ function Plan({
   const label = (k: number | null) => (k === null ? "As is" : (presets.data?.presets.find((p) => p.kbps === k)?.label ?? `${k} kbps`));
 
   return (
-    <div className="stack" style={{ "--gap": "22px" } as React.CSSProperties}>
-      <div className="send-summary">
-        <span className="serif send-count">
-          {options.isLoading || kbps === undefined ? <Spinner /> : cards ? `Fits on ${plural(cards, "card")}` : "Too big for a card"}
-        </span>
-        <span className="muted">
-          {title}
-          {estimate ? " · we'll download it from Audible first" : ""}
-        </span>
+    <div className="stack" style={{ "--gap": "20px" } as React.CSSProperties}>
+      <div className="send-top">
+        <div className="send-summary">
+          <span className="serif send-count">
+            {options.isLoading || kbps === undefined ? <Spinner /> : cards ? `Fits on ${plural(cards, "card")}` : "Too big for a card"}
+          </span>
+          <span className="muted">
+            {title}
+            {estimate ? " · we'll download it from Audible first" : ""}
+          </span>
+        </div>
+        {tiles.length > 0 && (
+          <div className="ycards" aria-label="The cards">
+            {tiles.slice(0, 8).map((t, i) => (
+              <div key={i} className="ycard" title={`${t.title}: ${Math.round(Math.min(1, t.fill) * 100)}% full`}>
+                <div className="ycard-face">
+                  <span className="ycard-fill" style={{ height: `${Math.min(1, t.fill) * 100}%` }} />
+                </div>
+                <small className="tabular">{Math.round(Math.min(1, t.fill) * 100)}%</small>
+              </div>
+            ))}
+            {tiles.length > 8 && <div className="muted" style={{ alignSelf: "center" }}>+{tiles.length - 8}</div>}
+          </div>
+        )}
       </div>
 
-      {tiles.length > 0 && (
-        <div className="ycards" aria-label="The cards">
-          {tiles.slice(0, 12).map((t, i) => (
-            <div key={i} className="ycard" title={t.title}>
-              <div className="ycard-face">
-                <span className="ycard-fill" style={{ height: `${Math.min(1, t.fill) * 100}%` }} />
-                <span className="ycard-n">{i + 1}</span>
-              </div>
-              <small className="tabular">{Math.round(Math.min(1, t.fill) * 100)}% full</small>
-            </div>
-          ))}
-          {tiles.length > 12 && <div className="muted" style={{ alignSelf: "center" }}>+ {tiles.length - 12} more</div>}
-        </div>
-      )}
-
-      <div className="stack" style={{ "--gap": "8px" } as React.CSSProperties}>
+      <div className="stack" style={{ "--gap": "6px" } as React.CSSProperties}>
         <strong>Audio size</strong>
         <small className="muted">A Yoto card holds 500 MB. Smaller audio fits more on each card, and spoken word still sounds clear.</small>
         <div className="size-options" role="radiogroup" aria-label="Audio size">
@@ -465,13 +465,13 @@ function Plan({
               disabled={o.cards === null}
               onClick={() => setKbps(o.kbps)}
             >
+              {o.kbps === defaultKbps && <span className="size-badge">Recommended</span>}
+              {o.kbps === null && <span className="size-badge plain">Fastest</span>}
               <span className="size-name">{label(o.kbps)}</span>
               <span className="size-cards serif">{o.cards === null ? "Too big" : plural(o.cards, "card")}</span>
-              <small className="muted tabular">
-                {o.kbps === null ? `${mb(o.bytes)} · ${options.data?.current_kbps ?? "?"} kbps` : `${mb(o.bytes)} · ${o.kbps} kbps`}
+              <small className="size-detail tabular">
+                {mb(o.bytes)} · {o.kbps ?? options.data?.current_kbps ?? "?"} kbps
               </small>
-              {o.kbps === defaultKbps && <span className="pill sage">Recommended</span>}
-              {o.kbps === null && <span className="pill">Fastest</span>}
             </button>
           ))}
         </div>
