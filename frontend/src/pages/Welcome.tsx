@@ -593,7 +593,7 @@ function DoneStep({ data, onFinish }: { data: Onboarding; onFinish: (to?: string
       <h2>What would you like to do first?</h2>
       <div className="use-choices">
         {wantsYoto && (
-          <button type="button" className="use-choice" onClick={() => void onFinish("/")}>
+          <button type="button" className="use-choice" onClick={() => void onFinish("/library")}>
             <span className="use-icon"><SquareStack size={26} /></span>
             <strong>Make my first Yoto card</strong>
             <span>Pick a book and tap Send to Yoto. We do the rest.</span>

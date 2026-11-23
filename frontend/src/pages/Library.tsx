@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowRight,
   BookOpen,
+  MessageCircle,
+  SquareStack,
+  X,
   Check,
   CheckCircle2,
   CircleCheckBig,
@@ -15,7 +19,7 @@ import {
   Star,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import {
   ContinueListening,
@@ -25,10 +29,10 @@ import {
   useLibraryItems,
   type LibraryItem,
 } from "../components/LibraryGrid";
-import { Button, Empty, PageHead, useToast } from "../components/ui";
+import { Button, Empty, PageHead, SourceIcon, useToast } from "../components/ui";
 import { relative } from "../format";
 import { useListMemory, useUpdateParams } from "../hooks/listMemory";
-import { useFeatures } from "../hooks/session";
+import { featureSet, useFeatures, useOnboarding } from "../hooks/session";
 import { useAction } from "../hooks/queries";
 import type { AudibleAccount, Playlist } from "../types";
 
@@ -52,7 +56,7 @@ const FILTERS: {
   },
   {
     key: "transcribed",
-    label: "Has transcript",
+    label: "Ready to ask",
     icon: <FileText size={15} />,
     test: (i) => !!i.transcribed,
   },
@@ -149,6 +153,10 @@ export default function Library() {
     local: library.folders.length,
   };
   const account = accounts.data?.find((a) => String(a.id) === accountId);
+  // Just browsing (no search, filter or one account picked): show what's yours above everything.
+  const browsing = !q.trim() && !active.length && !accountId && (kind === "all" || kind === "books");
+  const shelf = browsing ? yourShelf(inView) : [];
+  const noCards = !playlists.isLoading && !(playlists.data ?? []).length;
   const setKind = (k: Kind) => setParam("kind", k === "all" ? "" : k);
   const toggleFilter = (key: string) => update((p) => (p.get(key) === "1" ? p.delete(key) : p.set(key, "1")));
   // Book-only filters are hidden where there are no books to apply them to.
@@ -192,8 +200,24 @@ export default function Library() {
         }
       />
 
+      <SetupNudge />
+      {has("yoto") && noCards && counts.all > 0 && <FirstCardStrip />}
       <div className="with-rail">
         <section>
+          {shelf.length > 0 && (
+            <section className="shelf">
+              <div className="section-head">
+                <h2>Your shelf</h2>
+                <span className="muted">Starred and partway through · just yours</span>
+                {library.items.some((i) => i.starredAt) && (
+                  <button type="button" className="link-btn" onClick={() => toggleFilter("starred")}>
+                    All starred →
+                  </button>
+                )}
+              </div>
+              <CoverGrid items={shelf} row />
+            </section>
+          )}
           <div className="toolbar">
             <div className="chips">
               {(
@@ -247,17 +271,7 @@ export default function Library() {
                 : "Try a different search or filter."}
             </Empty>
           ) : (
-            <Empty
-              icon={<Headphones size={40} />}
-              title="Your library is empty"
-              action={
-                <Button variant="primary" onClick={() => navigate("/settings#sources")} icon={<Plus size={18} />}>
-                  Connect Audible or add a podcast
-                </Button>
-              }
-            >
-              Connect an Audible account, subscribe to a podcast, or import a folder of audio to get started.
-            </Empty>
+            <GetStarted />
           )}
         </section>
 
@@ -267,5 +281,131 @@ export default function Library() {
         </aside>
       </div>
     </>
+  );
+}
+
+/** Starred first (newest star first), then what you're partway through: at most a row's worth. */
+function yourShelf(items: LibraryItem[]): LibraryItem[] {
+  const starred = items.filter((i) => i.starredAt).sort((a, b) => b.starredAt!.localeCompare(a.starredAt!));
+  const partway = items.filter((i) => i.inProgress && !i.starredAt).sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0));
+  return [...starred, ...partway].slice(0, 12);
+}
+
+const DISMISSED = "audio.firstCardStrip";
+
+/** No Yoto cards yet: how to make one, pointing at the covers right below. Closes for good once dismissed. */
+function FirstCardStrip() {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(DISMISSED) === "1";
+    } catch {
+      return false;
+    }
+  });
+  if (hidden) return null;
+  const close = () => {
+    setHidden(true);
+    try {
+      localStorage.setItem(DISMISSED, "1");
+    } catch {
+      /* storage unavailable: it just comes back next time */
+    }
+  };
+  return (
+    <section className="panel first-card">
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <div className="eyebrow" style={{ flex: 1 }}>
+          Make your first Yoto card
+        </div>
+        <Button size="sm" variant="ghost" iconOnly icon={<X size={16} />} aria-label="Hide this" onClick={close} />
+      </div>
+      <ol className="howto-steps">
+        <li className="current">
+          <span className="howto-n">1</span>
+          <span>
+            Pick a book below and tap <b>Send to Yoto</b>
+          </span>
+        </li>
+        <li>
+          <span className="howto-n">2</span>
+          <span>We download it and fit it onto as few cards as possible</span>
+        </li>
+        <li>
+          <span className="howto-n">3</span>
+          <span>
+            In the <b>Yoto app</b>, open Library and link it to a blank card
+          </span>
+        </li>
+      </ol>
+    </section>
+  );
+}
+
+/** A short "still to do" card while something this person needs isn't connected yet. */
+function SetupNudge() {
+  const status = useOnboarding();
+  const data = status.data;
+  if (!data) return null;
+  const has = featureSet(data.features);
+  const todo = [
+    has.has("audible") &&
+      !data.audible.some((a) => a.connected) && {
+        step: "audible",
+        icon: <SourceIcon kind="audible" size={18} />,
+        label: "Connect Audible",
+        why: "to see your audiobooks",
+      },
+    has.has("yoto") &&
+      !data.yoto.connected.length &&
+      data.yoto.ready && { step: "yoto", icon: <SquareStack size={18} />, label: "Connect Yoto", why: "to send cards to your player" },
+    has.has("ask") &&
+      !(data.ai.transcribe && data.ai.ask) && {
+        step: "ai",
+        icon: <MessageCircle size={18} />,
+        label: "Set up Ask",
+        why: "to ask questions about books",
+      },
+  ].filter(Boolean) as { step: string; icon: ReactNode; label: string; why: string }[];
+  if (!todo.length) return null;
+  return (
+    <section className="panel setup-nudge">
+      <strong>Finish setting up</strong>
+      <div className="setup-nudge-items">
+        {todo.map((t) => (
+          <Link key={t.step} to={`/welcome?step=${t.step}`} className="setup-nudge-item">
+            {t.icon}
+            <span>
+              <b>{t.label}</b> <span className="muted">{t.why}</span>
+            </span>
+            <ArrowRight size={16} />
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Nothing in the library yet: the ways in. */
+function GetStarted() {
+  return (
+    <Empty
+      icon={<Headphones size={40} />}
+      title="Your library is empty"
+      action={
+        <div className="row wrap" style={{ gap: 10, justifyContent: "center" }}>
+          <Link className="btn primary" to="/welcome?step=audible">
+            <SourceIcon kind="audible" size={16} /> Connect Audible
+          </Link>
+          <Link className="btn" to="/podcasts">
+            Follow a podcast
+          </Link>
+          <Link className="btn" to="/folders">
+            Add my own files
+          </Link>
+        </div>
+      }
+    >
+      Bring in the audiobooks you own on Audible, podcasts you follow, or audio files from your computer.
+    </Empty>
   );
 }

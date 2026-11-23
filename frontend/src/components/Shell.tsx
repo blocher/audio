@@ -5,7 +5,6 @@ import {
   BookOpen,
   Download,
   Folder,
-  House,
   LibraryBig,
   LogOut,
   Menu,
@@ -82,12 +81,11 @@ export default function Shell({ user, children }: { user: User; children: ReactN
   return (
     <div className={`shell ${player.current ? "" : "no-player"}`}>
       <aside className={`sidebar ${open ? "open" : ""}`}>
-        <Link to="/" className="brand">
+        <Link to="/library" className="brand">
           <AudioLines size={26} /> Audio
         </Link>
         <nav className="nav" aria-label="Main">
-          {link({ to: "/", label: "Home", icon: <House size={20} />, active: location.pathname === "/" })}
-          <div className="nav-group">
+          <div className="nav-group" style={{ marginTop: 0 }}>
             <div className="sidebar-label">Your audio</div>
             {audio.map(link)}
           </div>

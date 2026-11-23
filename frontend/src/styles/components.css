@@ -2770,25 +2770,54 @@ code {
   color: var(--honey);
 }
 
-.home-section + .home-section {
-  margin-top: 40px;
+/* Your shelf: starred and partway through, one sideways row above the library grid. */
+.shelf {
+  margin-bottom: 26px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--paper-line);
 }
 
-.home-section .section-head {
+.shelf .section-head {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 14px;
 }
 
-.home-section .section-head h2 {
+.shelf .section-head h2 {
   margin: 0;
 }
 
-.home-section .section-head a {
+.shelf .section-head .muted {
+  font-size: var(--text-sm);
+}
+
+.shelf .section-head .link-btn {
   margin-left: auto;
   font-size: var(--text-sm);
   color: var(--terracotta-strong);
+}
+
+.cover-grid.cover-row {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: 178px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding: 8px 8px 10px;
+  margin: -8px -8px 0;
+}
+
+.cover-row > .cover-card {
+  scroll-snap-align: start;
+}
+
+@media (max-width: 520px) {
+  .cover-grid.cover-row {
+    grid-template-columns: none;
+    grid-auto-columns: 42%;
+  }
 }
 
 /* ───────── Installed app: update, offline, install ───────── */

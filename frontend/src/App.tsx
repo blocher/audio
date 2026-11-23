@@ -12,7 +12,6 @@ import BookDetail from "./pages/BookDetail";
 import Connected from "./pages/Connected";
 import FolderDetail from "./pages/FolderDetail";
 import Folders from "./pages/Folders";
-import Home from "./pages/Home";
 import Library from "./pages/Library";
 import Login from "./pages/Login";
 import PlaylistDetail from "./pages/PlaylistDetail";
@@ -70,7 +69,7 @@ export default function App() {
       ) : (
         <Shell user={session.data.user!}>
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<Navigate to="/library" replace />} />
             <Route path="/library" element={<Library />} />
             <Route path="/books/:id" element={<BookDetail />} />
             <Route path="/podcasts" element={<Podcasts />} />
